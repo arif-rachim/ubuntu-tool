@@ -130,6 +130,7 @@ type Query struct {
 	Priority int    // tampilkan prioritas ini dan yang lebih parah; -1 = semua
 	Unit     string // -u UNIT
 	UserUnit bool   // --user-unit
+	Tag      string // -t SYSLOG_IDENTIFIER, mis. pesan dari logger -t
 	Since    string // --since, mis. "1 hour ago"
 	Grep     string // --grep
 	Lines    int    // -n; 0 = default 300
@@ -160,6 +161,9 @@ func (q Query) Args() []string {
 		} else {
 			args = append(args, "-u", q.Unit)
 		}
+	}
+	if q.Tag != "" {
+		args = append(args, "-t", q.Tag)
 	}
 	if q.Since != "" {
 		args = append(args, "--since", q.Since)

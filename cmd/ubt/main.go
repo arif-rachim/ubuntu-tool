@@ -21,6 +21,7 @@ import (
 	"github.com/arif-rachim/ubuntu-tool/internal/screens/packages"
 	"github.com/arif-rachim/ubuntu-tool/internal/screens/ports"
 	"github.com/arif-rachim/ubuntu-tool/internal/screens/resource"
+	"github.com/arif-rachim/ubuntu-tool/internal/screens/schedule"
 	"github.com/arif-rachim/ubuntu-tool/internal/screens/services"
 	"github.com/arif-rachim/ubuntu-tool/internal/screens/shared"
 	"github.com/arif-rachim/ubuntu-tool/internal/ui/runflow"
@@ -86,6 +87,7 @@ func openers(env shared.Env) map[string]func() nav.Screen {
 		"logs":     func() nav.Screen { return logs.New(env) },
 		"services": func() nav.Screen { return services.New(env) },
 		"packages": func() nav.Screen { return packages.New(env) },
+		"schedule": func() nav.Screen { return schedule.New(env) },
 	}
 	return m
 }

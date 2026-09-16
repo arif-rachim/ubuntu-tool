@@ -775,7 +775,11 @@ peringatan merah "jangan tutup sesi ini".
     selalu berjalan); install/remove/purge/upgrade interaktif supaya prompt dpkg bisa dijawab; repo
     deb822 & .list, tambah PPA berisiko tinggi; diverifikasi di PTY: cari htop, daftar terpasang, riwayat)* — daftar/cari/detail, update & upgrade (Stream), reboot-required, auto-upgrade,
     riwayat apt, perbaikan dpkg.
-11. **Modul Penjadwalan** — tabel terpadu cron + timer, penjelas ekspresi, wizard cron.d & timer.
+11. **Modul Penjadwalan** *(selesai 2026-09-16; parser & penjelas cron native (Matches/Next, aturan
+    tanggal ATAU hari, nama bulan/hari, @special); OnCalendar dijelaskan; file ditulis lewat
+    `install -m 0644 /dev/stdin` dengan isi tampil di konfirmasi; cron buatan ubt meneruskan output ke
+    journal via `logger -t ubt-NAMA`; timer divalidasi `systemd-analyze calendar` & `verify`; deteksi
+    program tidak ditemukan/tidak executable & service timer yang gagal; diverifikasi di PTY)* — tabel terpadu cron + timer, penjelas ekspresi, wizard cron.d & timer.
 12. **Modul User & SSH** — user/grup/sudo, SSH key & authorized_keys, perbaikan permission,
     hardening sshd lewat drop-in + pengaman anti-terkunci, audit login gagal.
 13. **Modul Firewall** — status, wizard allow/deny, delete by number, enable/disable + pengaman SSH
