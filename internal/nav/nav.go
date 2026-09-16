@@ -39,6 +39,13 @@ type Helper interface {
 	HelpText() string
 }
 
+// Busy diimplementasikan layar yang sedang menjalankan proses. Saat Busy() true, root meneruskan
+// semua tombol (termasuk q dan ctrl+c) ke layar, supaya layar bisa menghentikan prosesnya dengan
+// rapi alih-alih ubt keluar dan meninggalkan proses yatim.
+type Busy interface {
+	Busy() bool
+}
+
 // PushMsg menaruh layar baru di atas tumpukan.
 type PushMsg struct{ Screen Screen }
 

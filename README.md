@@ -8,7 +8,9 @@ kamu belajar command aslinya.
 > **Status: dalam pengembangan awal.** Menu utama dan komponen pertanyaan interaktif sudah ada,
 > modul-modulnya belum. Rencana lengkap ada di [`docs/PLAN.md`](docs/PLAN.md).
 >
-> Coba komponen pertanyaan interaktif: `ubt --demo-ask`.
+> Coba komponen yang sudah ada:
+> - `ubt --demo-ask` — pertanyaan interaktif (pilihan berpenjelasan, isian, preview, ringkasan)
+> - `ubt --demo-run` — layar konfirmasi command + eksekusi (plan bertahap, sudo, interaktif, riwayat)
 
 ## Modul yang direncanakan
 

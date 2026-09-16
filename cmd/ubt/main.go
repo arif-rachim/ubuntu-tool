@@ -15,6 +15,7 @@ import (
 	"github.com/arif-rachim/ubuntu-tool/internal/nav"
 	"github.com/arif-rachim/ubuntu-tool/internal/screens/demo"
 	"github.com/arif-rachim/ubuntu-tool/internal/screens/home"
+	"github.com/arif-rachim/ubuntu-tool/internal/ui/runflow"
 	"github.com/arif-rachim/ubuntu-tool/internal/version"
 )
 
@@ -47,6 +48,8 @@ func run(args []string, stdout, stderr io.Writer, interactive bool) int {
 		return 0
 	case "--demo-ask":
 		return runTUI(demo.New(), stderr, interactive)
+	case "--demo-run":
+		return runTUI(demo.NewRun(runflow.DefaultDeps()), stderr, interactive)
 	default:
 		fmt.Fprintf(stderr, "ubt: perintah tidak dikenal %q\n\n%s", args[0], usage)
 		return 2

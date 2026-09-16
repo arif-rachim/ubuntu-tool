@@ -92,7 +92,8 @@ ubuntu-tool/
 │   ├── ui/                      # komponen & tema bersama (tak tahu soal domain)
 │   │   ├── theme.go             #   palet lipgloss, level bahaya (aman/hati2/bahaya)
 │   │   ├── layout.go            #   header+breadcrumb / body / footer keybind
-│   │   ├── confirm.go           #   ★ layar "preview command + penjelasan + konfirmasi"
+│   │   ├── runflow/             #   ★ alur aksi: confirm.go (preview command + penjelasan + konfirmasi)
+│   │   │                        #     → exec.go (progres langkah, output, sudo, interaktif) → run.Outcome
 │   │   ├── picker.go            #   list bisa difilter (dibuat di fase 4 saat pertama dipakai)
 │   │   ├── datatable.go         #   tabel scrollable (fase 4)
 │   │   ├── detail.go            #   panel key/value + viewport (fase 4)
@@ -103,13 +104,12 @@ ubuntu-tool/
 │   │   └── status.go            #   spinner, toast, empty state, error state
 │   ├── i18n/strings.go          # semua teks Indonesia di satu tempat (siap ditambah EN nanti)
 │   ├── run/                     # ★ lapisan eksekusi
-│   │   ├── command.go           #   type Command{Argv, NeedsRoot, Title, Explain, Danger, Interactive}
-│   │   ├── runner.go            #   interface Runner + real + fake (untuk test)
-│   │   ├── sudo.go              #   deteksi root, prefix sudo, cek `sudo -n true`
-│   │   ├── interactive.go       #   integrasi tea.ExecProcess (lepas & rebut kembali terminal)
-│   │   ├── plan.go              #   Plan = beberapa Command berurutan, satu konfirmasi, stop saat gagal
-│   │   ├── stream.go            #   command berjalan lama → baris demi baris ke UI (journalctl -f, du)
-│   │   ├── history.go           #   log ke ~/.config/ubt/history.log
+│   │   ├── command.go           #   type Command, Preview/Script (quoting shell, heredoc stdin)
+│   │   ├── runner.go            #   interface Runner (Capture, LC_ALL=C, sudo -n) + Real + Fake
+│   │   ├── sudo.go              #   deteksi root, Env, CheckSudo (`sudo -n true`), SudoValidate (`sudo -v`)
+│   │   ├── plan.go              #   Plan (+Check), Step, StepResult, Outcome
+│   │   ├── stream.go            #   Stream: stdout+stderr berurutan, \r progres, pembatalan grup proses
+│   │   ├── history.go           #   JSON-per-baris ke ~/.config/ubt/history.log (0700/0600)
 │   │   └── export.go            #   riwayat → script bash (set -euo pipefail + komentar penjelasan)
 │   ├── sys/                     # ★ collector murni — TIDAK boleh import bubbletea
 │   │   ├── ports/               #   parse /proc/net/*, map inode→PID, fallback `ss`
@@ -225,10 +225,26 @@ cmd := exec.Command(argv[0], argv[1:]...)
 return tea.ExecProcess(cmd, func(err error) tea.Msg { return ExecDoneMsg{Cmd: c, Err: err} })
 ```
 
-Karena `sudo` akan minta password di layar bersih, **semua command `NeedsRoot` diperlakukan sebagai
-interaktif** — lebih sederhana dan selalu benar. Sebelum menjalankan, `sudo.go` menjalankan
-`sudo -n true` untuk tahu apakah kredensial masih ter-cache, lalu menampilkan di layar konfirmasi
-"sudo akan meminta password" atau tidak.
+~~Semua command `NeedsRoot` diperlakukan sebagai interaktif.~~ **Diubah saat implementasi fase 3:**
+supaya output command root tetap bisa ditangkap dan ditampilkan di TUI, alurnya:
+1. Layar konfirmasi menjalankan `sudo -n true` di latar belakang dan menampilkan "sudo akan meminta
+   password" / "izin sudo masih tersimpan" / "sudo tidak terinstall" (tombol y diblok).
+2. Sebelum langkah root pertama, bila izin belum tersimpan: `sudo -v` lewat `tea.ExecProcess`
+   (password diketik di terminal bersih, sekali saja).
+3. Langkah root non-interaktif dijalankan `sudo -n <argv>` lewat Stream (output tampil langsung).
+   Preview tetap menampilkan `sudo <argv>` karena itu yang akan diketik user.
+4. Bila izin kedaluwarsa di tengah Plan (`sudo -n` keluar 1 dengan satu baris berawalan `sudo:`),
+   minta `sudo -v` lagi sekali dan ulangi langkah itu.
+
+Command `Interactive` dijalankan lewat `tea.ExecProcess` dibungkus
+`sh -c '"$@"; …; read _ </dev/tty' ubt <argv>` supaya pesan terakhirnya sempat dibaca sebelum TUI
+kembali ("Selesai (kode keluar N). Tekan enter…"). Argv aslinya diteruskan utuh sebagai argumen.
+
+Aksi `risk.Dangerous` butuh **y dua kali**. Layar eksekusi mengimplementasikan `nav.Busy`: selama proses
+berjalan semua tombol termasuk `ctrl+c` diteruskan ke layar (menghentikan proses: SIGTERM ke grup
+proses, SIGKILL setelah 3 detik) sehingga ubt tidak pernah keluar meninggalkan proses yatim.
+Hasil akhir selalu `run.Outcome{Plan, Approved, Results}`; modul memanggil
+`nav.Push(runflow.Confirm(plan, deps))` dan menerima `nav.ResumedMsg{Result: run.Outcome}`.
 
 `history.go` menulis setiap command yang **benar-benar dieksekusi** (beserta exit code) ke
 `~/.config/ubt/history.log` — menjadi sumber menu "Riwayat perintah" di home. Format JSON-per-baris
@@ -722,7 +738,9 @@ peringatan merah "jangan tutup sesi ini".
    multi-pertanyaan, ringkasan), `i18n`, layar `home` dengan menu berkelompok (semua modul masih
    placeholder). Tambah layar demo tersembunyi `ubt --demo-ask` untuk mencoba semua jenis pertanyaan.
    Sudah bisa `make run`.
-3. **Lapisan eksekusi** — `run/*` lengkap: `Command` (+Stdin), `Plan` (+Check, stop saat gagal),
+3. **Lapisan eksekusi** *(selesai 2026-09-16; `ui/runflow` menggantikan `ui/confirm.go`; demo
+   `ubt --demo-run`; diverifikasi di PTY termasuk sudo -v, command interaktif, ctrl+c, dan riwayat)* —
+   `run/*` lengkap: `Command` (+Stdin), `Plan` (+Check, stop saat gagal),
    `Stream`, `ui/confirm.go`, `tea.ExecProcess`, history JSON-per-baris. Uji dengan satu aksi nyata
    yang aman (`systemctl --version`) dan satu Plan dua langkah yang aman.
 4. **Modul Ports & Proses** — `sys/ports` + `sys/procs` + layar list/detail + aksi kill

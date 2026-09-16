@@ -111,6 +111,10 @@ func (m Model) forward(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if b, ok := m.top().(nav.Busy); ok && b.Busy() {
+		m.showHelp = false
+		return m.forward(msg)
+	}
 	if key.Matches(msg, m.keys.forceQuit) {
 		return m, tea.Quit
 	}
@@ -167,7 +171,11 @@ func (m Model) View() tea.View {
 		if t, ok := top.(nav.Typer); ok {
 			typing = t.Typing()
 		}
-		keys = dedupeKeys(append(top.Keys(), m.keys.footer(len(m.stack) > 1, typing)...))
+		if b, ok := top.(nav.Busy); ok && b.Busy() {
+			keys = top.Keys()
+		} else {
+			keys = dedupeKeys(append(top.Keys(), m.keys.footer(len(m.stack) > 1, typing)...))
+		}
 	}
 
 	v := tea.NewView(ui.Frame(header, body, keys, m.width, m.height))

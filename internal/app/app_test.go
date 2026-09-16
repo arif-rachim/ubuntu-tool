@@ -160,3 +160,33 @@ func TestHelpOverlay(t *testing.T) {
 		t.Fatal("tombol apa pun harus menutup bantuan")
 	}
 }
+
+type busyScreen struct {
+	fakeScreen
+	busy bool
+}
+
+func (b *busyScreen) Busy() bool { return b.busy }
+
+// Update mengembalikan dirinya sendiri (bukan fakeScreen yang di-embed) supaya tetap Busy di tumpukan.
+func (b *busyScreen) Update(msg tea.Msg) (nav.Screen, tea.Cmd) {
+	b.fakeScreen.Update(msg)
+	return b, nil
+}
+
+func TestBusyMenerimaCtrlC(t *testing.T) {
+	s := &busyScreen{fakeScreen: fakeScreen{title: "jalan"}, busy: true}
+	m := New(s)
+	for _, k := range []string{"ctrl+c", "q", "esc"} {
+		if _, cmd := send(m, keyPress(k)); isQuit(cmd) {
+			t.Fatalf("%s tidak boleh keluar saat layar Busy", k)
+		}
+	}
+	if len(s.got) != 3 {
+		t.Fatalf("semua tombol harus diteruskan ke layar Busy, diterima %d", len(s.got))
+	}
+	s.busy = false
+	if _, cmd := send(m, keyPress("ctrl+c")); !isQuit(cmd) {
+		t.Fatal("setelah selesai, ctrl+c harus keluar")
+	}
+}
