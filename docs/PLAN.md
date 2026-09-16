@@ -798,7 +798,15 @@ peringatan merah "jangan tutup sesi ini".
     Check `nginx -t` sebelum reload; bila ufw aktif Plan menyertakan `ufw allow 'Nginx Full'`; certbot
     dipasang lewat snap bila belum ada, Plan HTTPS diawali `getent ahosts` + `nginx -t`; cek sertifikat
     memakai `sys/tlscheck` untuk domain mana pun; peringatan bila lebih dari satu web server berjalan)* — deteksi web server, site nginx, wizard reverse proxy, certbot, cek sertifikat.
-15. **Modul Docker** — pengecekan ketersediaan, images, containers, shell interaktif, commit,
+15. **Modul Docker** *(selesai 2026-09-16; empat kondisi dibedakan: binary tidak ada, daemon mati,
+    tanpa izin socket (tawarkan `usermod -aG docker` atau mode sudo selama sesi), dan error lain;
+    shell interaktif memakai `sh -c 'if command -v bash …; then exec bash; else exec sh; fi'` sehingga
+    fallback tidak perlu dua percobaan; aksi container lewat `ui/ask` (opsi dinonaktifkan sesuai state,
+    container compose diberi saran `docker compose`); runner Python memakai `--user UID:GID -e HOME=/tmp`
+    supaya file di proyek tidak menjadi milik root; wizard Dockerfile hanya menyalin requirements.txt /
+    package.json bila file itu ada; file yang sudah ada memicu pertanyaan timpa (default tidak) dan
+    Plan bertanda BAHAYA; `system df` "reclaimable" diabaikan bila semua aktif; diverifikasi di PTY
+    terhadap 12 container nyata secara read-only)* — pengecekan ketersediaan, images, containers, shell interaktif, commit,
     wizard Dockerfile/compose, runner modul Python.
 16. **Diagnosa** — wizard berbasis gejala + "Cek kesehatan umum" + baris ringkas di home.
 17. **Pemolesan** — `ubt doctor` (cek semua binary tiap modul + nama paket apt-nya:

@@ -17,7 +17,7 @@ import (
 )
 
 // Jumlah baris stdin maksimum yang ditampilkan di layar konfirmasi.
-const maxStdinLines = 12
+const maxStdinLines = 40
 
 // ConfirmModel adalah layar "preview command + penjelasan + konfirmasi".
 type ConfirmModel struct {
