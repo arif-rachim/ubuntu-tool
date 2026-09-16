@@ -808,7 +808,14 @@ peringatan merah "jangan tutup sesi ini".
     Plan bertanda BAHAYA; `system df` "reclaimable" diabaikan bila semua aktif; diverifikasi di PTY
     terhadap 12 container nyata secara read-only)* — pengecekan ketersediaan, images, containers, shell interaktif, commit,
     wizard Dockerfile/compose, runner modul Python.
-16. **Diagnosa** — wizard berbasis gejala + "Cek kesehatan umum" + baris ringkas di home.
+16. **Diagnosa** *(selesai 2026-09-16; logika di `internal/diagnose` (tanpa UI, Env bisa diganti saat test),
+    layar di `screens/diagnose`; `ui/checklist` mendapat mode `Independent` — semua langkah tetap
+    dijalankan, ringkasan "N masalah, M catatan", angka 1-9 membuka modul yang disarankan langkah itu,
+    enter membuka temuan paling parah; gejala web/internet langsung membuka wizard Network
+    (`network:inbound`/`network:outbound` lewat `Model.WithWizard`); satu sampel resource dipakai bersama
+    semua langkah "Server lambat"; insight edukatif (tingkat Safe) tidak dihitung sebagai temuan;
+    baris ringkas di home memakai `diagnose.Quick` (disk ≥90%, RAM <10%, service gagal, perlu reboot —
+    tanpa jaringan/apt, diperbarui setiap kembali ke home))* — wizard berbasis gejala + "Cek kesehatan umum" + baris ringkas di home.
 17. **Pemolesan** — `ubt doctor` (cek semua binary tiap modul + nama paket apt-nya:
     `dig`→`bind9-dnsutils`, `nc`→`netcat-openbsd`, `sshd`→`openssh-server`, `traceroute`, `ncdu`,
     `needrestart`, `nginx`, `certbot`), `ubt ports --json`, `ubt version`, layar Riwayat + ekspor

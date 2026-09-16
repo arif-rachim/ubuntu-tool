@@ -2,18 +2,22 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/term"
 
 	"github.com/arif-rachim/ubuntu-tool/internal/app"
+	"github.com/arif-rachim/ubuntu-tool/internal/diagnose"
 	"github.com/arif-rachim/ubuntu-tool/internal/i18n"
 	"github.com/arif-rachim/ubuntu-tool/internal/nav"
 	"github.com/arif-rachim/ubuntu-tool/internal/screens/demo"
+	diagscreen "github.com/arif-rachim/ubuntu-tool/internal/screens/diagnose"
 	"github.com/arif-rachim/ubuntu-tool/internal/screens/disk"
 	"github.com/arif-rachim/ubuntu-tool/internal/screens/docker"
 	"github.com/arif-rachim/ubuntu-tool/internal/screens/firewall"
@@ -54,7 +58,10 @@ func run(args []string, stdout, stderr io.Writer, interactive bool) int {
 			fmt.Fprintln(stderr, i18n.NeedsTTY)
 			return 1
 		}
-		return runTUI(home.New(home.Wire(home.Groups(), openers(shared.Default()))), stderr, interactive)
+		env := shared.Default()
+		denv := diagnose.DefaultEnv(env.Runner, env.ProcRoot, env.UID, env.Now)
+		menu := home.New(home.Wire(home.Groups(), openers(env))).WithQuick(func(ctx context.Context) []string { return diagnose.Quick(ctx, denv) })
+		return runTUI(menu, stderr, interactive)
 	}
 
 	switch args[0] {
@@ -73,17 +80,36 @@ func run(args []string, stdout, stderr io.Writer, interactive bool) int {
 	}
 }
 
+// moduleNames memetakan ID modul ke label menu utama.
+func moduleNames() map[string]string {
+	names := map[string]string{}
+	for _, g := range home.Groups() {
+		for _, it := range g.Items {
+			names[it.ID] = it.Label
+		}
+	}
+	return names
+}
+
 // openers memetakan ID menu ke layar modul yang sudah tersedia.
 func openers(env shared.Env) map[string]func() nav.Screen {
 	var m map[string]func() nav.Screen
 	// open membuka modul lain dari dalam modul (mis. wizard Network menyarankan modul Firewall).
-	open := func(id string) nav.Screen {
+	var open func(id string) nav.Screen
+	open = func(id string) nav.Screen {
 		if f, ok := m[id]; ok {
 			return f()
+		}
+		// "network:inbound" membuka modul network langsung di wizard tertentu.
+		if mod, wizard, ok := strings.Cut(id, ":"); ok && mod == "network" {
+			return network.New(env, open).WithWizard(wizard)
 		}
 		return nil
 	}
 	m = map[string]func() nav.Screen{
+		"diagnose": func() nav.Screen {
+			return diagscreen.New(diagnose.DefaultEnv(env.Runner, env.ProcRoot, env.UID, env.Now), open, moduleNames())
+		},
 		"network":  func() nav.Screen { return network.New(env, open) },
 		"ports":    func() nav.Screen { return ports.New(env) },
 		"resource": func() nav.Screen { return resource.New(env) },

@@ -1,5 +1,6 @@
 // Package checklist menjalankan pemeriksaan bertahap (check.Step) satu per satu dan menampilkan
-// hasilnya secara langsung, berhenti di langkah pertama yang menemukan penyebab masalah.
+// hasilnya secara langsung, berhenti di langkah pertama yang menemukan penyebab masalah
+// (kecuali mode Independent, yang menjalankan semua langkah).
 package checklist
 
 import (
@@ -32,6 +33,11 @@ type Model struct {
 	started time.Time
 	// OnNext dipanggil saat user menekan enter pada langkah yang punya Result.Next (membuka modul lain).
 	OnNext func(moduleID string) tea.Cmd
+	// Independent: langkah tidak saling bergantung, jadi semua tetap dijalankan walau ada yang gagal
+	// (dipakai Diagnosa). Angka 1-9 membuka modul yang disarankan langkah tersebut.
+	Independent bool
+	// ModuleName menerjemahkan ID modul menjadi nama untuk petunjuk tombol (opsional).
+	ModuleName func(id string) string
 }
 
 type (
@@ -104,7 +110,7 @@ func (m *Model) Update(msg tea.Msg) (nav.Screen, tea.Cmd) {
 		res := msg.res
 		m.results[msg.index] = &res
 		m.cur++
-		if res.Status == check.Fail || m.cur >= len(m.steps) {
+		if (res.Status == check.Fail && !m.Independent) || m.cur >= len(m.steps) {
 			m.done = true
 			return m, nil
 		}
@@ -124,6 +130,11 @@ func (m *Model) Update(msg tea.Msg) (nav.Screen, tea.Cmd) {
 			if next := m.nextModule(); next != "" && m.OnNext != nil {
 				return m, m.OnNext(next)
 			}
+		case "1", "2", "3", "4", "5", "6", "7", "8", "9":
+			i := int(msg.String()[0] - '1')
+			if m.Independent && m.OnNext != nil && i < len(m.results) && m.results[i] != nil && m.results[i].Next != "" && m.results[i].Status != check.OK {
+				return m, m.OnNext(m.results[i].Next)
+			}
 		}
 	}
 	return m, nil
@@ -136,9 +147,14 @@ func (m *Model) Results() []*check.Result { return m.results }
 func (m *Model) Done() bool { return m.done }
 
 func (m *Model) nextModule() string {
-	for _, r := range m.results {
-		if r != nil && r.Status == check.Fail && r.Next != "" {
-			return r.Next
+	for _, want := range []check.Status{check.Fail, check.Warn} {
+		for _, r := range m.results {
+			if r != nil && r.Status == want && r.Next != "" {
+				return r.Next
+			}
+		}
+		if !m.Independent {
+			break
 		}
 	}
 	return ""
@@ -191,6 +207,13 @@ func (m *Model) View(width, height int) string {
 			if res.Explain != "" && res.Status != check.OK {
 				lines = append(lines, ui.Wrap(res.Explain, width, "     "))
 			}
+			if m.Independent && m.OnNext != nil && res.Next != "" && (res.Status == check.Fail || res.Status == check.Warn) && i < 9 {
+				name := res.Next
+				if m.ModuleName != nil {
+					name = m.ModuleName(res.Next)
+				}
+				lines = append(lines, "     "+t.Accent.Render(fmt.Sprintf("→ tekan %d untuk membuka %s", i+1, name)))
+			}
 		}
 		if step.Equivalent != "" && (res != nil || (i == m.cur && !m.done)) {
 			lines = append(lines, "     "+t.Muted.Render("$ "+step.Equivalent))
@@ -200,6 +223,28 @@ func (m *Model) View(width, height int) string {
 	switch {
 	case !m.done:
 		lines = append(lines, " "+t.Subtle.Render("Memeriksa…"))
+	case m.Independent:
+		fails, warns := 0, 0
+		for _, r := range m.results {
+			switch {
+			case r == nil:
+			case r.Status == check.Fail:
+				fails++
+			case r.Status == check.Warn:
+				warns++
+			}
+		}
+		switch {
+		case fails+warns == 0:
+			lines = append(lines, " "+t.Success.Render("✓ Tidak ditemukan masalah.")+t.Subtle.Render(fmt.Sprintf(" (%s)", time.Since(m.started).Round(100*time.Millisecond))))
+		default:
+			summary := fmt.Sprintf("%d masalah, %d catatan.", fails, warns)
+			style := t.Warning
+			if fails > 0 {
+				style = t.Danger
+			}
+			lines = append(lines, ui.Wrap(style.Render(summary)+t.Subtle.Render(" Setelah memperbaiki, tekan r untuk memeriksa ulang."), width, " "))
+		}
 	case failed >= 0:
 		lines = append(lines, ui.Wrap(t.Danger.Render(fmt.Sprintf("Penyebab ditemukan di langkah %d.", failed+1))+t.Subtle.Render(" Langkah setelahnya tidak diperiksa karena bergantung pada langkah ini. Perbaiki, lalu tekan r untuk memeriksa ulang."), width, " "))
 		if next := m.nextModule(); next != "" && m.OnNext != nil {

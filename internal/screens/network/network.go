@@ -42,6 +42,7 @@ type Model struct {
 	inbound    func(port int) []netinfo.Step
 	hostsPath  string
 	netplanDir string
+	wizard     string // "k" atau "m": langsung buka wizard saat layar dibuka (dari Diagnosa)
 }
 
 type infoMsg struct {
@@ -63,6 +64,12 @@ func New(env shared.Env, open Opener) *Model {
 	}
 }
 
+// WithWizard membuka wizard "outbound" atau "inbound" begitu layar tampil.
+func (m *Model) WithWizard(name string) *Model {
+	m.wizard = map[string]string{"outbound": "k", "inbound": "m"}[name]
+	return m
+}
+
 var _ nav.Screen = (*Model)(nil)
 
 func (m *Model) Title() string { return "Network & konektivitas" }
@@ -80,12 +87,19 @@ func (m *Model) HelpText() string {
 
 func (m *Model) Init() tea.Cmd {
 	r, root := m.env.Runner, m.env.ProcRoot
-	return func() tea.Msg {
+	load := func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 		info, err := netinfo.Read(ctx, r, root)
 		return infoMsg{owner: m, info: info, err: err}
 	}
+	if m.wizard != "" {
+		w := m.wizard
+		m.wizard = ""
+		_, open := m.key(w)
+		return tea.Batch(load, open)
+	}
+	return load
 }
 
 func (m *Model) Update(msg tea.Msg) (nav.Screen, tea.Cmd) {
@@ -116,7 +130,14 @@ func (m *Model) Update(msg tea.Msg) (nav.Screen, tea.Cmd) {
 		}
 		return m, nil
 	case tea.KeyPressMsg:
-		switch msg.String() {
+		return m.key(msg.String())
+	}
+	return m, nil
+}
+
+func (m *Model) key(k string) (nav.Screen, tea.Cmd) {
+	{
+		switch k {
 		case "k":
 			return m, nav.Push(ask.New(ask.Form{ID: "outbound", Title: "Tidak bisa konek", Questions: []ask.Question{{
 				ID: "target", Prompt: "Ke mana server ini tidak bisa terhubung?", Kind: ask.Text, Placeholder: "contoh.com, api.contoh.com:8443, atau https://contoh.com",

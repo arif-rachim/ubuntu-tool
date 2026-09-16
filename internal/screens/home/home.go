@@ -2,8 +2,10 @@
 package home
 
 import (
+	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
@@ -79,6 +81,33 @@ type Model struct {
 	flat   []Item
 	cursor int
 	keys   []key.Binding
+	// quick menghasilkan temuan kilat untuk baris ringkas di atas menu (opsional).
+	quick   func(ctx context.Context) []string
+	notices []string
+	checked bool
+}
+
+type quickMsg struct {
+	owner   *Model
+	notices []string
+}
+
+// WithQuick memasang pemeriksaan kilat yang hasilnya tampil sebagai satu baris di atas menu.
+func (m *Model) WithQuick(fn func(ctx context.Context) []string) *Model {
+	m.quick = fn
+	return m
+}
+
+func (m *Model) runQuick() tea.Cmd {
+	if m.quick == nil {
+		return nil
+	}
+	fn := m.quick
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		return quickMsg{owner: m, notices: fn(ctx)}
+	}
 }
 
 // New membuat layar menu utama.
@@ -94,12 +123,21 @@ func New(groups []Group) *Model {
 	return m
 }
 
-func (m *Model) Init() tea.Cmd       { return nil }
+func (m *Model) Init() tea.Cmd       { return m.runQuick() }
 func (m *Model) Title() string       { return i18n.HomeTitle }
 func (m *Model) Keys() []key.Binding { return m.keys }
 
 // Update menangani navigasi menu.
 func (m *Model) Update(msg tea.Msg) (nav.Screen, tea.Cmd) {
+	switch msg := msg.(type) {
+	case quickMsg:
+		if msg.owner == m {
+			m.notices, m.checked = msg.notices, true
+		}
+		return m, nil
+	case nav.ResumedMsg, nav.RefreshMsg:
+		return m, m.runQuick()
+	}
 	k, ok := msg.(tea.KeyPressMsg)
 	if !ok || len(m.flat) == 0 {
 		return m, nil
@@ -127,7 +165,14 @@ func (m *Model) Update(msg tea.Msg) (nav.Screen, tea.Cmd) {
 func (m *Model) View(width, height int) string {
 	t := ui.Current
 	var lines []string
-	lines = append(lines, "", ui.Wrap(t.Subtle.Render(i18n.HomeIntro), width, " "), "")
+	lines = append(lines, "", ui.Wrap(t.Subtle.Render(i18n.HomeIntro), width, " "))
+	switch {
+	case len(m.notices) > 0:
+		lines = append(lines, ui.Wrap(t.Warning.Render("⚠ "+strings.Join(m.notices, " · "))+t.Subtle.Render(" — buka Diagnosa → Cek kesehatan umum"), width, " "))
+	case m.checked:
+		lines = append(lines, " "+t.Success.Render("✓ Tidak ada masalah mendesak terdeteksi"))
+	}
+	lines = append(lines, "")
 
 	cursorLine := 0
 	n := 0
