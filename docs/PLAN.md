@@ -793,7 +793,11 @@ peringatan merah "jangan tutup sesi ini".
     mengizinkan SSH (port dari sshd_config/$SSH_CONNECTION), hapus aturan SSH terakhir ditandai
     berbahaya; `--force` dipakai setelah konfirmasi ubt karena ufw sendiri bertanya y/n)* — status, wizard allow/deny, delete by number, enable/disable + pengaman SSH
     (dijadikan satu fungsi pengaman bersama dengan modul SSH).
-14. **Modul Web & TLS** — deteksi web server, site nginx, wizard reverse proxy, certbot, cek sertifikat.
+14. **Modul Web & TLS** *(selesai 2026-09-16; site dibaca native dari sites-available/enabled (tanpa
+    `nginx -T` yang butuh root); config reverse proxy ditulis lewat `install -m 0644 /dev/stdin` dengan
+    Check `nginx -t` sebelum reload; bila ufw aktif Plan menyertakan `ufw allow 'Nginx Full'`; certbot
+    dipasang lewat snap bila belum ada, Plan HTTPS diawali `getent ahosts` + `nginx -t`; cek sertifikat
+    memakai `sys/tlscheck` untuk domain mana pun; peringatan bila lebih dari satu web server berjalan)* — deteksi web server, site nginx, wizard reverse proxy, certbot, cek sertifikat.
 15. **Modul Docker** — pengecekan ketersediaan, images, containers, shell interaktif, commit,
     wizard Dockerfile/compose, runner modul Python.
 16. **Diagnosa** — wizard berbasis gejala + "Cek kesehatan umum" + baris ringkas di home.
