@@ -15,6 +15,8 @@ import (
 	"github.com/arif-rachim/ubuntu-tool/internal/nav"
 	"github.com/arif-rachim/ubuntu-tool/internal/screens/demo"
 	"github.com/arif-rachim/ubuntu-tool/internal/screens/home"
+	"github.com/arif-rachim/ubuntu-tool/internal/screens/ports"
+	"github.com/arif-rachim/ubuntu-tool/internal/screens/shared"
 	"github.com/arif-rachim/ubuntu-tool/internal/ui/runflow"
 	"github.com/arif-rachim/ubuntu-tool/internal/version"
 )
@@ -37,7 +39,11 @@ func isInteractive() bool {
 
 func run(args []string, stdout, stderr io.Writer, interactive bool) int {
 	if len(args) == 0 {
-		return runTUI(home.New(home.Groups()), stderr, interactive)
+		if !interactive {
+			fmt.Fprintln(stderr, i18n.NeedsTTY)
+			return 1
+		}
+		return runTUI(home.New(home.Wire(home.Groups(), openers(shared.Default()))), stderr, interactive)
 	}
 
 	switch args[0] {
@@ -53,6 +59,13 @@ func run(args []string, stdout, stderr io.Writer, interactive bool) int {
 	default:
 		fmt.Fprintf(stderr, "ubt: perintah tidak dikenal %q\n\n%s", args[0], usage)
 		return 2
+	}
+}
+
+// openers memetakan ID menu ke layar modul yang sudah tersedia.
+func openers(env shared.Env) map[string]func() nav.Screen {
+	return map[string]func() nav.Screen{
+		"ports": func() nav.Screen { return ports.New(env) },
 	}
 }
 

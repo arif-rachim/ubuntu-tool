@@ -61,6 +61,7 @@ type Question struct {
 
 // Form adalah sekumpulan pertanyaan yang dijawab berurutan.
 type Form struct {
+	ID         string // penanda untuk pemanggil yang membuka beberapa form (dikembalikan di Result.ID)
 	Title      string
 	Questions  []Question
 	SkipReview bool // lewati layar ringkasan (ringkasan hanya muncul bila ada >1 pertanyaan)
@@ -104,6 +105,7 @@ type Answers map[string]Answer
 
 // Result dikirim lewat nav.PopMsg saat form selesai atau dibatalkan.
 type Result struct {
+	ID        string
 	Form      string
 	Answers   Answers
 	Cancelled bool

@@ -743,7 +743,10 @@ peringatan merah "jangan tutup sesi ini".
    `run/*` lengkap: `Command` (+Stdin), `Plan` (+Check, stop saat gagal),
    `Stream`, `ui/confirm.go`, `tea.ExecProcess`, history JSON-per-baris. Uji dengan satu aksi nyata
    yang aman (`systemctl --version`) dan satu Plan dua langkah yang aman.
-4. **Modul Ports & Proses** — `sys/ports` + `sys/procs` + layar list/detail + aksi kill
+4. **Modul Ports & Proses** *(selesai 2026-09-16; komponen `ui.Table`/`ui.Detail`, `screens/shared.Env`,
+   `testutil`; aksi: stop unit (sistem/user), docker stop, SIGTERM → tawarkan SIGKILL bila masih hidup
+   setelah 3 detik, cari pemilik dengan sudo ss; pengaman PID 1, ubt sendiri, sshd/port sesi SSH;
+   diverifikasi di PTY dengan `python3 -m http.server 8080`)* — `sys/ports` + `sys/procs` + layar list/detail + aksi kill
    (TERM lalu KILL) dan "stop unit systemd pemiliknya". Ini modul dengan nilai tertinggi.
 5. **Modul Resource** — hampir seluruhnya read-only dari `/proc`, memakai ulang `sys/procs`. Cepat & aman.
 6. **Modul Disk & Storage** — ringkasan fs/inode/lsblk, walker drill-down, file terhapus-tapi-terbuka,

@@ -15,6 +15,7 @@ import (
 
 // Item adalah satu entri menu.
 type Item struct {
+	ID    string
 	Label string
 	Desc  string
 	Phase int // fase di docs/PLAN.md tempat modul ini dibangun
@@ -32,32 +33,44 @@ type Group struct {
 func Groups() []Group {
 	return []Group{
 		{"🩺", i18n.GroupDiagnose, []Item{
-			{Label: "Diagnosa berdasarkan gejala", Desc: "Disk penuh, server lambat, web tidak bisa diakses, service mati terus, dan lainnya", Phase: 16},
+			{ID: "diagnose", Label: "Diagnosa berdasarkan gejala", Desc: "Disk penuh, server lambat, web tidak bisa diakses, service mati terus, dan lainnya", Phase: 16},
 		}},
 		{"💻", i18n.GroupSystem, []Item{
-			{Label: "Resource", Desc: "CPU, RAM, load, dan proses yang paling berat", Phase: 5},
-			{Label: "Disk & Storage", Desc: "Apa yang makan tempat, inode, swap, bersih-bersih terpandu", Phase: 6},
-			{Label: "Log", Desc: "Error sejak boot, log per service, ikuti log secara langsung", Phase: 7},
-			{Label: "Service (systemd)", Desc: "Start, stop, restart, enable service dan lihat lognya", Phase: 8},
-			{Label: "Penjadwalan", Desc: "Cron dan systemd timer: lihat, jelaskan, dan buat jadwal", Phase: 11},
-			{Label: "Paket (apt)", Desc: "Cari, install, update keamanan, dan perbaiki paket rusak", Phase: 10},
+			{ID: "resource", Label: "Resource", Desc: "CPU, RAM, load, dan proses yang paling berat", Phase: 5},
+			{ID: "disk", Label: "Disk & Storage", Desc: "Apa yang makan tempat, inode, swap, bersih-bersih terpandu", Phase: 6},
+			{ID: "logs", Label: "Log", Desc: "Error sejak boot, log per service, ikuti log secara langsung", Phase: 7},
+			{ID: "services", Label: "Service (systemd)", Desc: "Start, stop, restart, enable service dan lihat lognya", Phase: 8},
+			{ID: "schedule", Label: "Penjadwalan", Desc: "Cron dan systemd timer: lihat, jelaskan, dan buat jadwal", Phase: 11},
+			{ID: "packages", Label: "Paket (apt)", Desc: "Cari, install, update keamanan, dan perbaiki paket rusak", Phase: 10},
 		}},
 		{"🌐", i18n.GroupNetwork, []Item{
-			{Label: "Network & konektivitas", Desc: "IP, DNS, route, dan wizard \"kenapa tidak bisa konek\"", Phase: 9},
-			{Label: "Ports & Proses", Desc: "Port mana dipakai proses apa, dan hentikan dengan aman", Phase: 4},
-			{Label: "Firewall (ufw)", Desc: "Buka/tutup port dengan pengaman supaya SSH tidak terputus", Phase: 13},
-			{Label: "Web & TLS", Desc: "Reverse proxy nginx, HTTPS Let's Encrypt, cek sertifikat", Phase: 14},
+			{ID: "network", Label: "Network & konektivitas", Desc: "IP, DNS, route, dan wizard \"kenapa tidak bisa konek\"", Phase: 9},
+			{ID: "ports", Label: "Ports & Proses", Desc: "Port mana dipakai proses apa, dan hentikan dengan aman", Phase: 4},
+			{ID: "firewall", Label: "Firewall (ufw)", Desc: "Buka/tutup port dengan pengaman supaya SSH tidak terputus", Phase: 13},
+			{ID: "web", Label: "Web & TLS", Desc: "Reverse proxy nginx, HTTPS Let's Encrypt, cek sertifikat", Phase: 14},
 		}},
 		{"🔑", i18n.GroupAccess, []Item{
-			{Label: "User & SSH", Desc: "Tambah user, sudo, SSH key, dan amankan server SSH", Phase: 12},
+			{ID: "users", Label: "User & SSH", Desc: "Tambah user, sudo, SSH key, dan amankan server SSH", Phase: 12},
 		}},
 		{"📦", i18n.GroupContainer, []Item{
-			{Label: "Docker", Desc: "Image, container, shell interaktif, dan wizard compose", Phase: 15},
+			{ID: "docker", Label: "Docker", Desc: "Image, container, shell interaktif, dan wizard compose", Phase: 15},
 		}},
 		{"📜", i18n.GroupHistory, []Item{
-			{Label: "Riwayat perintah", Desc: "Command yang pernah dijalankan ubt, dan ekspor jadi script", Phase: 17},
+			{ID: "history", Label: "Riwayat perintah", Desc: "Command yang pernah dijalankan ubt, dan ekspor jadi script", Phase: 17},
 		}},
 	}
+}
+
+// Wire memasang pembuka layar untuk item yang modulnya sudah tersedia, berdasarkan ID.
+func Wire(groups []Group, openers map[string]func() nav.Screen) []Group {
+	for gi := range groups {
+		for ii := range groups[gi].Items {
+			if open, ok := openers[groups[gi].Items[ii].ID]; ok {
+				groups[gi].Items[ii].Open = open
+			}
+		}
+	}
+	return groups
 }
 
 // Model adalah layar menu utama.

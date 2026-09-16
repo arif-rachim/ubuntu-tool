@@ -781,7 +781,7 @@ func (m *Model) visibleAnswers() Answers {
 func (m *Model) finish(cancelled bool) tea.Cmd {
 	m.done = true
 	m.cancel()
-	res := Result{Form: m.form.Title, Cancelled: cancelled}
+	res := Result{ID: m.form.ID, Form: m.form.Title, Cancelled: cancelled}
 	if !cancelled {
 		res.Answers = m.visibleAnswers()
 	}
