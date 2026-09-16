@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/arif-rachim/ubuntu-tool/internal/screens/home"
+	"github.com/arif-rachim/ubuntu-tool/internal/screens/shared"
 )
 
 func TestRun(t *testing.T) {
@@ -21,6 +24,9 @@ func TestRun(t *testing.T) {
 		{name: "argumen version tak dikenal", args: []string{"version", "--xml"}, wantCode: 2, wantStderr: "argumen tidak dikenal"},
 		{name: "tanpa argumen", args: nil, wantCode: 1, wantStderr: "butuh terminal interaktif"},
 		{name: "demo tanpa TTY", args: []string{"--demo-ask"}, wantCode: 1, wantStderr: "butuh terminal interaktif"},
+		{name: "ports json", args: []string{"ports", "--json"}, wantCode: 0, wantStdout: "["},
+		{name: "flag doctor tak dikenal", args: []string{"doctor", "--xml"}, wantCode: 2, wantStderr: "flag provided but not defined"},
+		{name: "history last bukan angka", args: []string{"history", "--last", "banyak"}, wantCode: 2, wantStderr: "invalid value"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -52,5 +58,19 @@ func TestVersionJSON(t *testing.T) {
 		if _, ok := got[key]; !ok {
 			t.Errorf("field %q tidak ada di JSON", key)
 		}
+	}
+}
+
+func TestSemuaMenuTersambung(t *testing.T) {
+	ops := openers(shared.Default())
+	for _, g := range home.Groups() {
+		for _, it := range g.Items {
+			if _, ok := ops[it.ID]; !ok {
+				t.Errorf("menu %q (%s) belum punya layar", it.ID, it.Label)
+			}
+		}
+	}
+	if ops["network"] == nil {
+		t.Fatal("network harus ada")
 	}
 }

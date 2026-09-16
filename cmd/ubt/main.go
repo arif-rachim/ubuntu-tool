@@ -13,6 +13,7 @@ import (
 	"github.com/charmbracelet/x/term"
 
 	"github.com/arif-rachim/ubuntu-tool/internal/app"
+	"github.com/arif-rachim/ubuntu-tool/internal/cli"
 	"github.com/arif-rachim/ubuntu-tool/internal/diagnose"
 	"github.com/arif-rachim/ubuntu-tool/internal/i18n"
 	"github.com/arif-rachim/ubuntu-tool/internal/nav"
@@ -21,6 +22,7 @@ import (
 	"github.com/arif-rachim/ubuntu-tool/internal/screens/disk"
 	"github.com/arif-rachim/ubuntu-tool/internal/screens/docker"
 	"github.com/arif-rachim/ubuntu-tool/internal/screens/firewall"
+	"github.com/arif-rachim/ubuntu-tool/internal/screens/history"
 	"github.com/arif-rachim/ubuntu-tool/internal/screens/home"
 	"github.com/arif-rachim/ubuntu-tool/internal/screens/logs"
 	"github.com/arif-rachim/ubuntu-tool/internal/screens/network"
@@ -39,9 +41,16 @@ import (
 const usage = `ubt — asisten interaktif untuk server Ubuntu
 
 Pemakaian:
-  ubt                  buka menu interaktif
-  ubt version [--json] tampilkan versi
-  ubt help             tampilkan bantuan ini
+  ubt                               buka menu interaktif
+  ubt doctor [--json]               periksa program yang dibutuhkan tiap modul
+  ubt ports [--json]                daftar port yang sedang listening dan prosesnya
+  ubt history [--last N] [--json]   command yang pernah dijalankan lewat ubt
+  ubt history export [--last N]     ekspor riwayat jadi script bash (ke stdout)
+  ubt version [--json]              tampilkan versi
+  ubt help                          tampilkan bantuan ini
+
+Contoh:
+  ubt history export --last 20 > setup-server.sh
 `
 
 func main() {
@@ -67,6 +76,12 @@ func run(args []string, stdout, stderr io.Writer, interactive bool) int {
 	switch args[0] {
 	case "version", "--version", "-v":
 		return cmdVersion(args[1:], stdout, stderr)
+	case "doctor":
+		return cli.Doctor(args[1:], stdout, stderr)
+	case "ports":
+		return cli.Ports(args[1:], stdout, stderr)
+	case "history":
+		return cli.History(args[1:], stdout, stderr)
 	case "help", "--help", "-h":
 		fmt.Fprint(stdout, usage)
 		return 0
@@ -122,6 +137,7 @@ func openers(env shared.Env) map[string]func() nav.Screen {
 		"firewall": func() nav.Screen { return firewall.New(env) },
 		"web":      func() nav.Screen { return web.New(env) },
 		"docker":   func() nav.Screen { return docker.New(env) },
+		"history":  func() nav.Screen { return history.New(env, nil) },
 	}
 	return m
 }

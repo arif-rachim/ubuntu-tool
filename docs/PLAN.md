@@ -816,7 +816,14 @@ peringatan merah "jangan tutup sesi ini".
     semua langkah "Server lambat"; insight edukatif (tingkat Safe) tidak dihitung sebagai temuan;
     baris ringkas di home memakai `diagnose.Quick` (disk ≥90%, RAM <10%, service gagal, perlu reboot —
     tanpa jaringan/apt, diperbarui setiap kembali ke home))* — wizard berbasis gejala + "Cek kesehatan umum" + baris ringkas di home.
-17. **Pemolesan** — `ubt doctor` (cek semua binary tiap modul + nama paket apt-nya:
+17. **Pemolesan** *(selesai 2026-09-16; subcommand non-interaktif di `internal/cli`: `ubt doctor [--json]`
+    (exit 1 hanya bila program wajib hilang; mencari juga di /usr/sbin & /snap/bin), `ubt ports [--json]`,
+    `ubt history [--last N] [--json]` dan `ubt history export [--last N] [--include-failed]` — command
+    gagal dilewati atau dikomentari, stdin ikut sebagai heredoc, stdin sensitif diganti komentar;
+    layar Riwayat (terbaru di atas, detail per entri, ekspor lewat konfirmasi `install -m 0700`);
+    help overlay `?` sudah ada sejak fase 2; `scripts/release.sh` + `make release TAG=… [PUBLISH=1]`
+    menghasilkan SHA256SUMS dan opsional GitHub release; README berisi instalasi binary dengan
+    verifikasi checksum; test memastikan setiap item menu utama punya layar)* — `ubt doctor` (cek semua binary tiap modul + nama paket apt-nya:
     `dig`→`bind9-dnsutils`, `nc`→`netcat-openbsd`, `sshd`→`openssh-server`, `traceroute`, `ncdu`,
     `needrestart`, `nginx`, `certbot`), `ubt ports --json`, `ubt version`, layar Riwayat + ekspor
     script (`ubt history export`), help overlay, README (`curl` binary rilis + `make install`), skrip rilis.

@@ -16,7 +16,7 @@ LDFLAGS := -s -w \
 GOFLAGS_BUILD := -trimpath -ldflags "$(LDFLAGS)"
 PLATFORMS     := linux/amd64 linux/arm64
 
-.PHONY: all build build-all run install uninstall test vet fmt fmt-check lint clean
+.PHONY: all build build-all release run install uninstall test vet fmt fmt-check lint clean
 
 all: fmt-check vet test build
 
@@ -30,6 +30,10 @@ build-all:
 		echo "build $$out"; \
 		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build $(GOFLAGS_BUILD) -o $$out ./cmd/ubt || exit 1; \
 	done
+
+# make release TAG=v0.1.0 [PUBLISH=1]
+release:
+	scripts/release.sh $(TAG) $(if $(PUBLISH),--publish,)
 
 run: build
 	./$(BIN_DIR)/$(BINARY) $(ARGS)
