@@ -17,6 +17,7 @@ import (
 	"github.com/arif-rachim/ubuntu-tool/internal/screens/disk"
 	"github.com/arif-rachim/ubuntu-tool/internal/screens/home"
 	"github.com/arif-rachim/ubuntu-tool/internal/screens/logs"
+	"github.com/arif-rachim/ubuntu-tool/internal/screens/network"
 	"github.com/arif-rachim/ubuntu-tool/internal/screens/ports"
 	"github.com/arif-rachim/ubuntu-tool/internal/screens/resource"
 	"github.com/arif-rachim/ubuntu-tool/internal/screens/services"
@@ -68,13 +69,23 @@ func run(args []string, stdout, stderr io.Writer, interactive bool) int {
 
 // openers memetakan ID menu ke layar modul yang sudah tersedia.
 func openers(env shared.Env) map[string]func() nav.Screen {
-	return map[string]func() nav.Screen{
+	var m map[string]func() nav.Screen
+	// open membuka modul lain dari dalam modul (mis. wizard Network menyarankan modul Firewall).
+	open := func(id string) nav.Screen {
+		if f, ok := m[id]; ok {
+			return f()
+		}
+		return nil
+	}
+	m = map[string]func() nav.Screen{
+		"network":  func() nav.Screen { return network.New(env, open) },
 		"ports":    func() nav.Screen { return ports.New(env) },
 		"resource": func() nav.Screen { return resource.New(env) },
 		"disk":     func() nav.Screen { return disk.New(env) },
 		"logs":     func() nav.Screen { return logs.New(env) },
 		"services": func() nav.Screen { return services.New(env) },
 	}
+	return m
 }
 
 func runTUI(root nav.Screen, stderr io.Writer, interactive bool) int {

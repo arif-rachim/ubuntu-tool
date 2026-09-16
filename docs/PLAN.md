@@ -766,7 +766,10 @@ peringatan merah "jangan tutup sesi ini".
    (reload bila CanReload, start/stop/restart/enable/disable/enable --now/reset-failed); unit kritis
    (ssh, jaringan, dbus, docker) ditandai berbahaya; toggle unit milik user; diverifikasi di PTY
    dengan cron.service)* — list/filter (JSON), detail, log (pakai ulang modul Log), aksi lifecycle.
-9. **Modul Network** — info interface/route/DNS, koneksi aktif, wizard konek keluar & diakses dari luar.
+9. **Modul Network** *(selesai 2026-09-16; paket netral `internal/check` + komponen `ui/checklist`
+   dipakai juga modul Diagnosa; `sys/tlscheck` dipakai juga modul Web; pemeriksaan TCP/HTTP/TLS/DNS
+   native Go dengan pembanding DNS publik 1.1.1.1; wizard masuk menyarankan modul Firewall/Web lewat
+   `check.Result.Next`; diverifikasi di PTY ke example.com dan http.server yang bind 127.0.0.1)* — info interface/route/DNS, koneksi aktif, wizard konek keluar & diakses dari luar.
 10. **Modul Paket** — daftar/cari/detail, update & upgrade (Stream), reboot-required, auto-upgrade,
     riwayat apt, perbaikan dpkg.
 11. **Modul Penjadwalan** — tabel terpadu cron + timer, penjelas ekspresi, wizard cron.d & timer.
