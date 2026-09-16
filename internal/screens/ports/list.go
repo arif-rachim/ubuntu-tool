@@ -5,7 +5,6 @@ package ports
 import (
 	"context"
 	"fmt"
-	"os"
 	"strconv"
 	"strings"
 
@@ -367,6 +366,3 @@ func hasUnknown(ls []sysports.Listener) bool {
 	}
 	return false
 }
-
-// selfPID dipisah supaya bisa diganti saat test.
-var selfPID = os.Getpid

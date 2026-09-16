@@ -12,6 +12,7 @@ import (
 	"github.com/arif-rachim/ubuntu-tool/internal/nav"
 	"github.com/arif-rachim/ubuntu-tool/internal/risk"
 	"github.com/arif-rachim/ubuntu-tool/internal/run"
+	"github.com/arif-rachim/ubuntu-tool/internal/screens/procact"
 	"github.com/arif-rachim/ubuntu-tool/internal/screens/shared"
 	sysports "github.com/arif-rachim/ubuntu-tool/internal/sys/ports"
 	"github.com/arif-rachim/ubuntu-tool/internal/sys/procs"
@@ -66,7 +67,7 @@ func (m *DetailModel) Keys() []key.Binding {
 func (m *DetailModel) Init() tea.Cmd { return nil }
 
 func (m *DetailModel) ctx() Context {
-	return Context{UID: m.env.UID, IsRoot: m.env.IsRoot, SelfPID: selfPID(), SSHPort: SSHPortFromEnv()}
+	return procact.CurrentContext(m.env.UID, m.env.IsRoot)
 }
 
 func (m *DetailModel) Update(msg tea.Msg) (nav.Screen, tea.Cmd) {

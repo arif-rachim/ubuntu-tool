@@ -748,7 +748,9 @@ peringatan merah "jangan tutup sesi ini".
    setelah 3 detik, cari pemilik dengan sudo ss; pengaman PID 1, ubt sendiri, sshd/port sesi SSH;
    diverifikasi di PTY dengan `python3 -m http.server 8080`)* — `sys/ports` + `sys/procs` + layar list/detail + aksi kill
    (TERM lalu KILL) dan "stop unit systemd pemiliknya". Ini modul dengan nilai tertinggi.
-5. **Modul Resource** — hampir seluruhnya read-only dari `/proc`, memakai ulang `sys/procs`. Cepat & aman.
+5. **Modul Resource** *(selesai 2026-09-16; `screens/procact` dipakai bersama modul Ports; auto-refresh
+   2 detik dengan jeda `p`, urut CPU/RAM `s`, temuan load/RAM/swap/PSI, riwayat OOM via journalctl,
+   aksi renice/TERM/KILL/stop unit/docker stop; diverifikasi di PTY dengan proses `yes`)* — hampir seluruhnya read-only dari `/proc`, memakai ulang `sys/procs`. Cepat & aman.
 6. **Modul Disk & Storage** — ringkasan fs/inode/lsblk, walker drill-down, file terhapus-tapi-terbuka,
    bersih-bersih terpandu, wizard swapfile (Plan pertama yang nyata).
 7. **Modul Log** — journal JSON, tampilan siap pakai, follow (Stream pertama yang nyata), `/var/log`.

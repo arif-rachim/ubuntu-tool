@@ -16,6 +16,7 @@ import (
 	"github.com/arif-rachim/ubuntu-tool/internal/screens/demo"
 	"github.com/arif-rachim/ubuntu-tool/internal/screens/home"
 	"github.com/arif-rachim/ubuntu-tool/internal/screens/ports"
+	"github.com/arif-rachim/ubuntu-tool/internal/screens/resource"
 	"github.com/arif-rachim/ubuntu-tool/internal/screens/shared"
 	"github.com/arif-rachim/ubuntu-tool/internal/ui/runflow"
 	"github.com/arif-rachim/ubuntu-tool/internal/version"
@@ -65,7 +66,8 @@ func run(args []string, stdout, stderr io.Writer, interactive bool) int {
 // openers memetakan ID menu ke layar modul yang sudah tersedia.
 func openers(env shared.Env) map[string]func() nav.Screen {
 	return map[string]func() nav.Screen{
-		"ports": func() nav.Screen { return ports.New(env) },
+		"ports":    func() nav.Screen { return ports.New(env) },
+		"resource": func() nav.Screen { return resource.New(env) },
 	}
 }
 

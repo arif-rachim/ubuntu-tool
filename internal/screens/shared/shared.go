@@ -70,3 +70,18 @@ func Bytes(n int64) string {
 	}
 	return s
 }
+
+// Duration menampilkan lama waktu yang mudah dibaca: "2 hari 3 jam", "15 menit".
+func Duration(d time.Duration) string {
+	days := int(d.Hours()) / 24
+	hours := int(d.Hours()) % 24
+	mins := int(d.Minutes()) % 60
+	switch {
+	case days > 0:
+		return fmt.Sprintf("%d hari %d jam", days, hours)
+	case hours > 0:
+		return fmt.Sprintf("%d jam %d menit", hours, mins)
+	default:
+		return fmt.Sprintf("%d menit", mins)
+	}
+}
