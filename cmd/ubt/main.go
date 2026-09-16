@@ -15,6 +15,7 @@ import (
 	"github.com/arif-rachim/ubuntu-tool/internal/nav"
 	"github.com/arif-rachim/ubuntu-tool/internal/screens/demo"
 	"github.com/arif-rachim/ubuntu-tool/internal/screens/disk"
+	"github.com/arif-rachim/ubuntu-tool/internal/screens/firewall"
 	"github.com/arif-rachim/ubuntu-tool/internal/screens/home"
 	"github.com/arif-rachim/ubuntu-tool/internal/screens/logs"
 	"github.com/arif-rachim/ubuntu-tool/internal/screens/network"
@@ -90,6 +91,7 @@ func openers(env shared.Env) map[string]func() nav.Screen {
 		"packages": func() nav.Screen { return packages.New(env) },
 		"schedule": func() nav.Screen { return schedule.New(env) },
 		"users":    func() nav.Screen { return users.New(env) },
+		"firewall": func() nav.Screen { return firewall.New(env) },
 	}
 	return m
 }

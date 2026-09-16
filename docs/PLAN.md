@@ -787,7 +787,11 @@ peringatan merah "jangan tutup sesi ini".
     hapus/kunci diri sendiri & root, tolak keluarkan admin sudo terakhir; ganti port: ufw allow dulu,
     daemon-reload + restart ssh.socket; diverifikasi di PTY di mesin tanpa openssh-server)* — user/grup/sudo, SSH key & authorized_keys, perbaikan permission,
     hardening sshd lewat drop-in + pengaman anti-terkunci, audit login gagal.
-13. **Modul Firewall** — status, wizard allow/deny, delete by number, enable/disable + pengaman SSH
+13. **Modul Firewall** *(selesai 2026-09-16; aturan dibaca lewat `sudo -n ufw status numbered` dan
+    status aktif dari ufw.conf tanpa root; bila sudo belum tersimpan, tombol s meminta password sekali;
+    pengaman: aktifkan ufw otomatis menambah `ufw limit PORT_SSH/tcp` bila belum ada aturan yang
+    mengizinkan SSH (port dari sshd_config/$SSH_CONNECTION), hapus aturan SSH terakhir ditandai
+    berbahaya; `--force` dipakai setelah konfirmasi ubt karena ufw sendiri bertanya y/n)* — status, wizard allow/deny, delete by number, enable/disable + pengaman SSH
     (dijadikan satu fungsi pengaman bersama dengan modul SSH).
 14. **Modul Web & TLS** — deteksi web server, site nginx, wizard reverse proxy, certbot, cek sertifikat.
 15. **Modul Docker** — pengecekan ketersediaan, images, containers, shell interaktif, commit,
