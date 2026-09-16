@@ -52,10 +52,10 @@ type Model struct {
 	env        shared.Env
 	journalDir string
 	health     syslogs.Health
-	loaded  bool
-	cursor  int
-	items   []preset
-	message string
+	loaded     bool
+	cursor     int
+	items      []preset
+	message    string
 }
 
 type healthMsg struct {
