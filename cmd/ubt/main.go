@@ -19,6 +19,7 @@ import (
 	"github.com/arif-rachim/ubuntu-tool/internal/screens/logs"
 	"github.com/arif-rachim/ubuntu-tool/internal/screens/ports"
 	"github.com/arif-rachim/ubuntu-tool/internal/screens/resource"
+	"github.com/arif-rachim/ubuntu-tool/internal/screens/services"
 	"github.com/arif-rachim/ubuntu-tool/internal/screens/shared"
 	"github.com/arif-rachim/ubuntu-tool/internal/ui/runflow"
 	"github.com/arif-rachim/ubuntu-tool/internal/version"
@@ -72,6 +73,7 @@ func openers(env shared.Env) map[string]func() nav.Screen {
 		"resource": func() nav.Screen { return resource.New(env) },
 		"disk":     func() nav.Screen { return disk.New(env) },
 		"logs":     func() nav.Screen { return logs.New(env) },
+		"services": func() nav.Screen { return services.New(env) },
 	}
 }
 

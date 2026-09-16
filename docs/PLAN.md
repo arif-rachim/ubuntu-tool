@@ -761,7 +761,11 @@ peringatan merah "jangan tutup sesi ini".
    dengan `--after-cursor` sehingga tidak ada entri yang terlewat antara pembacaan awal dan `-f`;
    `ui.Viewer` untuk teks panjang; aksi: journal permanen, vacuum, tambah user ke grup adm;
    `EntriesModel` siap dipakai modul Service; diverifikasi di PTY dengan `logger -p user.err`)* — journal JSON, tampilan siap pakai, follow (Stream pertama yang nyata), `/var/log`.
-8. **Modul Systemd** — list/filter (JSON), detail, log (pakai ulang modul Log), aksi lifecycle.
+8. **Modul Systemd** *(selesai 2026-09-16; list JSON + unit-file state, cadangan parse kolom, deteksi
+   tanpa systemd; detail dengan crash loop (NRestarts/Result), log terbaru, aksi sesuai kondisi
+   (reload bila CanReload, start/stop/restart/enable/disable/enable --now/reset-failed); unit kritis
+   (ssh, jaringan, dbus, docker) ditandai berbahaya; toggle unit milik user; diverifikasi di PTY
+   dengan cron.service)* — list/filter (JSON), detail, log (pakai ulang modul Log), aksi lifecycle.
 9. **Modul Network** — info interface/route/DNS, koneksi aktif, wizard konek keluar & diakses dari luar.
 10. **Modul Paket** — daftar/cari/detail, update & upgrade (Stream), reboot-required, auto-upgrade,
     riwayat apt, perbaikan dpkg.
