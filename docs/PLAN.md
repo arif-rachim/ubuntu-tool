@@ -410,7 +410,7 @@ baca menampilkan baris *"command setara: `…`"* supaya user tetap belajar walau
 - SSH server: deteksi `openssh-server` (tidak ada di mesin uji → saran `apt install openssh-server`).
   Config efektif `sudo sshd -T` (`key value` huruf kecil) → checklist hardening dengan penjelasan:
   `permitrootlogin`, `passwordauthentication`, `pubkeyauthentication`, `port`, `maxauthtries`.
-  Perubahan ditulis ke drop-in `/etc/ssh/sshd_config.d/60-ubt.conf` (bukan file utama), Plan:
+  Perubahan ditulis ke drop-in `/etc/ssh/sshd_config.d/00-ubt.conf` (bukan file utama), Plan:
   tulis → `sshd -t` (Check) → reload. **Ubuntu 24.04 memakai socket activation (`ssh.socket`)**: ganti
   port butuh `systemctl daemon-reload` + `systemctl restart ssh.socket`, bukan sekadar reload service —
   verifikasi saat implementasi.
@@ -714,7 +714,7 @@ diisi cek cepat read-only (disk, RAM, update keamanan, reboot) yang langsung bis
 ```
 
 Layar konfirmasi untuk **Plan** menampilkan semua langkah bernomor + langkah validasi, contoh ganti
-port SSH: `1. tulis /etc/ssh/sshd_config.d/60-ubt.conf` → `2. ufw allow 2222/tcp` →
+port SSH: `1. tulis /etc/ssh/sshd_config.d/00-ubt.conf` → `2. ufw allow 2222/tcp` →
 `3. sshd -t (validasi)` → `4. systemctl daemon-reload` → `5. systemctl restart ssh.socket`, dengan
 peringatan merah "jangan tutup sesi ini".
 
@@ -780,7 +780,12 @@ peringatan merah "jangan tutup sesi ini".
     `install -m 0644 /dev/stdin` dengan isi tampil di konfirmasi; cron buatan ubt meneruskan output ke
     journal via `logger -t ubt-NAMA`; timer divalidasi `systemd-analyze calendar` & `verify`; deteksi
     program tidak ditemukan/tidak executable & service timer yang gagal; diverifikasi di PTY)* — tabel terpadu cron + timer, penjelas ekspresi, wizard cron.d & timer.
-12. **Modul User & SSH** — user/grup/sudo, SSH key & authorized_keys, perbaikan permission,
+12. **Modul User & SSH** *(selesai 2026-09-16; **drop-in diubah menjadi `00-ubt.conf`** karena sshd memakai
+    nilai pertama dan 50-cloud-init.conf sering menyalakan PasswordAuthentication; konfigurasi efektif
+    dibaca native (Include, first-match, berhenti di Match) tanpa perlu `sshd -T`/root; fingerprint key
+    dihitung native (cocok dengan ssh-keygen -lf); pengaman: tolak matikan password tanpa key, tolak
+    hapus/kunci diri sendiri & root, tolak keluarkan admin sudo terakhir; ganti port: ufw allow dulu,
+    daemon-reload + restart ssh.socket; diverifikasi di PTY di mesin tanpa openssh-server)* — user/grup/sudo, SSH key & authorized_keys, perbaikan permission,
     hardening sshd lewat drop-in + pengaman anti-terkunci, audit login gagal.
 13. **Modul Firewall** — status, wizard allow/deny, delete by number, enable/disable + pengaman SSH
     (dijadikan satu fungsi pengaman bersama dengan modul SSH).
