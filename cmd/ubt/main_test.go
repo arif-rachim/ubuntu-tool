@@ -19,12 +19,13 @@ func TestRun(t *testing.T) {
 		{name: "help", args: []string{"help"}, wantCode: 0, wantStdout: "Pemakaian:"},
 		{name: "perintah tak dikenal", args: []string{"hapus-semua"}, wantCode: 2, wantStderr: `perintah tidak dikenal "hapus-semua"`},
 		{name: "argumen version tak dikenal", args: []string{"version", "--xml"}, wantCode: 2, wantStderr: "argumen tidak dikenal"},
-		{name: "tanpa argumen", args: nil, wantCode: 1, wantStderr: "belum tersedia"},
+		{name: "tanpa argumen", args: nil, wantCode: 1, wantStderr: "butuh terminal interaktif"},
+		{name: "demo tanpa TTY", args: []string{"--demo-ask"}, wantCode: 1, wantStderr: "butuh terminal interaktif"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var out, errOut bytes.Buffer
-			code := run(tt.args, &out, &errOut)
+			code := run(tt.args, &out, &errOut, false)
 			if code != tt.wantCode {
 				t.Errorf("exit code %d, ingin %d (stderr: %s)", code, tt.wantCode, errOut.String())
 			}
@@ -40,7 +41,7 @@ func TestRun(t *testing.T) {
 
 func TestVersionJSON(t *testing.T) {
 	var out, errOut bytes.Buffer
-	if code := run([]string{"version", "--json"}, &out, &errOut); code != 0 {
+	if code := run([]string{"version", "--json"}, &out, &errOut, false); code != 0 {
 		t.Fatalf("exit code %d: %s", code, errOut.String())
 	}
 	var got map[string]string

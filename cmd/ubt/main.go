@@ -7,6 +7,14 @@ import (
 	"io"
 	"os"
 
+	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/term"
+
+	"github.com/arif-rachim/ubuntu-tool/internal/app"
+	"github.com/arif-rachim/ubuntu-tool/internal/i18n"
+	"github.com/arif-rachim/ubuntu-tool/internal/nav"
+	"github.com/arif-rachim/ubuntu-tool/internal/screens/demo"
+	"github.com/arif-rachim/ubuntu-tool/internal/screens/home"
 	"github.com/arif-rachim/ubuntu-tool/internal/version"
 )
 
@@ -19,14 +27,16 @@ Pemakaian:
 `
 
 func main() {
-	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr, isInteractive()))
 }
 
-func run(args []string, stdout, stderr io.Writer) int {
+func isInteractive() bool {
+	return term.IsTerminal(os.Stdin.Fd()) && term.IsTerminal(os.Stdout.Fd())
+}
+
+func run(args []string, stdout, stderr io.Writer, interactive bool) int {
 	if len(args) == 0 {
-		// Menu interaktif dibangun di fase 2 (kerangka TUI).
-		fmt.Fprintln(stderr, "Menu interaktif belum tersedia di build ini. Coba `ubt help`.")
-		return 1
+		return runTUI(home.New(home.Groups()), stderr, interactive)
 	}
 
 	switch args[0] {
@@ -35,10 +45,24 @@ func run(args []string, stdout, stderr io.Writer) int {
 	case "help", "--help", "-h":
 		fmt.Fprint(stdout, usage)
 		return 0
+	case "--demo-ask":
+		return runTUI(demo.New(), stderr, interactive)
 	default:
 		fmt.Fprintf(stderr, "ubt: perintah tidak dikenal %q\n\n%s", args[0], usage)
 		return 2
 	}
+}
+
+func runTUI(root nav.Screen, stderr io.Writer, interactive bool) int {
+	if !interactive {
+		fmt.Fprintln(stderr, i18n.NeedsTTY)
+		return 1
+	}
+	if _, err := tea.NewProgram(app.New(root)).Run(); err != nil {
+		fmt.Fprintf(stderr, "ubt: %v\n", err)
+		return 1
+	}
+	return 0
 }
 
 func cmdVersion(args []string, stdout, stderr io.Writer) int {

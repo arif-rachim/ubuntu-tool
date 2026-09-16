@@ -5,8 +5,10 @@ menu, jawab beberapa pertanyaan, lalu `ubt` menampilkan **command persis** yang 
 beserta penjelasan tiap bagiannya, efeknya, dan meminta konfirmasi. Sambil menyelesaikan masalah,
 kamu belajar command aslinya.
 
-> **Status: dalam pengembangan awal.** Menu interaktif belum tersedia. Rencana lengkap ada di
-> [`docs/PLAN.md`](docs/PLAN.md).
+> **Status: dalam pengembangan awal.** Menu utama dan komponen pertanyaan interaktif sudah ada,
+> modul-modulnya belum. Rencana lengkap ada di [`docs/PLAN.md`](docs/PLAN.md).
+>
+> Coba komponen pertanyaan interaktif: `ubt --demo-ask`.
 
 ## Modul yang direncanakan
 
@@ -35,3 +37,7 @@ make test             # jalankan semua test
 make lint             # gofmt + go vet (+ golangci-lint bila terinstall)
 make build-all        # binary statis linux/amd64 & linux/arm64 di ./dist
 ```
+
+## Lisensi
+
+[MIT](LICENSE)

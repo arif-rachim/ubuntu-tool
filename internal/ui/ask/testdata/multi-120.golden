@@ -1,0 +1,21 @@
+ ✓ Jadwal   ● Bersihkan   ○ Template   ○ Ringkasan
+
+ Bersihkan apa saja? (pilih satu atau lebih)
+
+ ❯ [✓] 1. Cache apt                                                     ~1,2 GB
+          Aman dihapus, bisa diunduh ulang
+   [ ] 2. Image Docker tak terpakai ⚠                                   ~4,0 GB
+          Container yang berhenti ikut terhapus
+
+ Dipilih: 1
+
+
+
+
+
+
+
+
+
+
+

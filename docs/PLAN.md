@@ -43,6 +43,12 @@ sehingga sekaligus jadi alat belajar. Lama-lama user hafal commandnya sendiri.
   `apt install`, bukan crash. ⇒ perintah `ubt doctor`.
 - Go module proxy reachable. Versi terbaru: `bubbletea v1.3.10`, `bubbles v1.0.0`,
   `lipgloss v1.1.0`, `huh v1.0.0`.
+- **Diperbarui 2026-09-16 (keputusan user): pakai Bubble Tea v2** — `charm.land/bubbletea/v2 v2.0.9`,
+  `charm.land/bubbles/v2 v2.2.1`, `charm.land/lipgloss/v2 v2.0.6`. Perbedaan penting yang sudah
+  dipakai: `View() tea.View` (alt screen lewat `View.AltScreen`), `tea.KeyPressMsg` dengan
+  `String()` (spasi = `"space"`), `tea.PasteMsg` terpisah, `tea.RequestBackgroundColor` +
+  `tea.BackgroundColorMsg.IsDark()` untuk tema, dan `tea.ExecProcess(*exec.Cmd, func(error) tea.Msg)`
+  (signature terverifikasi dari source v2.0.9). Toolchain lokal: go1.27.1 di `~/.local/go`.
 
 ### Temuan environment kedua (Ubuntu 24.04.5 desktop, dicek 2026-09-16 untuk modul tambahan)
 
@@ -78,21 +84,22 @@ ubuntu-tool/
 ├── cmd/ubt/main.go              # entrypoint: parse subcommand minimal, lalu launch TUI
 ├── internal/
 │   ├── app/                     # root Bubble Tea model
-│   │   ├── app.go               #   screen stack, routing, resize, global keys
-│   │   ├── keys.go              #   keymap global (esc/q/?/r//)
-│   │   └── screen.go            #   interface Screen + pesan navigasi (Push/Pop/Replace)
+│   │   ├── app.go               #   screen stack, routing, resize, global keys, help overlay
+│   │   └── keys.go              #   keymap global (esc/q/?/r/ctrl+c)
+│   ├── nav/nav.go               # interface Screen, Typer, BackHandler, Helper + pesan Push/Pop/Replace
+│   │                            #   (paket daun supaya app, ui/ask, dan screens tidak import melingkar)
+│   ├── risk/risk.go             # tingkat bahaya Safe/Caution/Dangerous, dipakai run dan ui
 │   ├── ui/                      # komponen & tema bersama (tak tahu soal domain)
 │   │   ├── theme.go             #   palet lipgloss, level bahaya (aman/hati2/bahaya)
 │   │   ├── layout.go            #   header+breadcrumb / body / footer keybind
 │   │   ├── confirm.go           #   ★ layar "preview command + penjelasan + konfirmasi"
-│   │   ├── picker.go            #   list bisa difilter (bubbles/list)
-│   │   ├── datatable.go         #   tabel scrollable (bubbles/table)
-│   │   ├── detail.go            #   panel key/value + viewport
+│   │   ├── picker.go            #   list bisa difilter (dibuat di fase 4 saat pertama dipakai)
+│   │   ├── datatable.go         #   tabel scrollable (fase 4)
+│   │   ├── detail.go            #   panel key/value + viewport (fase 4)
 │   │   ├── ask/                 #   ★ pertanyaan interaktif gaya Claude Code (lihat bagian khusus)
 │   │   │   ├── question.go      #     tipe Question/Option/Answers — data murni, tanpa rendering
 │   │   │   ├── model.go         #     state machine: fokus, pilihan, "Lainnya…", navigasi antar pertanyaan
-│   │   │   ├── view.go          #     render opsi+penjelasan, chip header, panel preview, ringkasan
-│   │   │   └── keys.go          #     ↑↓ 1-9 space enter tab esc
+│   │   │   └── view.go          #     render opsi+penjelasan, chip header, panel preview, ringkasan
 │   │   └── status.go            #   spinner, toast, empty state, error state
 │   ├── i18n/strings.go          # semua teks Indonesia di satu tempat (siap ditambah EN nanti)
 │   ├── run/                     # ★ lapisan eksekusi
@@ -120,7 +127,7 @@ ubuntu-tool/
 │   │   ├── ufw/                 #   `ufw status numbered|verbose`
 │   │   └── docker/              #   docker CLI dengan `--format '{{json .}}'`
 │   ├── diagnose/                # wizard berbasis gejala; merangkai sys/* lintas modul
-│   ├── screens/                 # satu package per modul
+│   ├── screens/                 # satu package per modul (+ demo/ untuk `ubt --demo-ask`)
 │   │   ├── home/  ports/  resource/  disk/  logs/  network/  users/  packages/  schedule/  web/
 │   │   ├── firewall/  services/  dockerui/  diagnose/  history/
 │   └── version/version.go
@@ -211,7 +218,7 @@ lewat `Capture` — TUI memegang terminal. Solusinya `tea.ExecProcess`, yang men
 mengembalikan terminal ke child process, lalu merestore TUI setelah child selesai:
 
 ```go
-// Perlu diverifikasi saat implementasi terhadap bubbletea v1.3.10:
+// Terverifikasi di bubbletea v2.0.9 (exec.go):
 //   func ExecProcess(c *exec.Cmd, fn ExecCallback) Cmd
 //   type ExecCallback func(error) Msg
 cmd := exec.Command(argv[0], argv[1:]...)
@@ -485,6 +492,11 @@ membingungkan pemula. ⇒ `ui/ask` dibangun langsung di atas Bubble Tea + lipglo
 `bubbles/textinput`, `bubbles/textarea`, dan `bubbles/viewport` untuk bagian teks & preview.
 **`huh` dikeluarkan dari dependensi** (keputusan ini menggantikan rujukan huh sebelumnya).
 
+*Status 2026-09-16: dibangun di fase 2 sesuai spesifikasi di bawah, dengan penyesuaian kecil yang
+tercermin di tipe data: `Option.Meta`, `Question.Optional`/`Summary`, `Form.SkipReview`, `risk.Level`
+menggantikan `ui.Danger`. Penjelasan pertanyaan Text/TextArea tampil langsung di bawah prompt karena
+`?` di sana diketik sebagai huruf. Peringatan (`ask.Warn`) yang belum pernah terlihat butuh enter kedua.*
+
 #### Tipe data
 
 ```go
@@ -496,7 +508,8 @@ type Option struct {
     Description string    // "Log masuk journal, tetap jalan walau server sempat mati"
     Recommended bool      // dipindah ke urutan pertama + label "(Disarankan)"; maksimal satu
     Preview     string    // opsional: isi file/command yang akan dihasilkan bila opsi ini dipilih
-    Danger      ui.Danger // opsi berisiko diberi warna + ikon, bukan warna saja
+    Meta        string    // info ringkas rata kanan, mis. "~1,2 GB"
+    Risk        risk.Level // opsi berisiko diberi warna + ikon, bukan warna saja
     Disabled    string    // alasan tidak bisa dipilih: "nginx belum terinstall" (tampil redup)
 }
 
@@ -506,9 +519,11 @@ type Question struct {
     Prompt      string   // kalimat tanya lengkap, diakhiri "?"
     Help        string   // opsional, tampil saat `?` ditekan: penjelasan konsep untuk pemula
     Kind        Kind
-    Options     []Option                                 // Single/Multi; Confirm memakai Ya/Tidak bawaan
+    Options     []Option                                 // Single/Multi; Confirm: 2 opsi opsional untuk label+penjelasan Ya/Tidak
     Load        func(ctx context.Context) ([]Option, error) // opsi dinamis: daftar user, unit, interface
     Other       bool     // tambah opsi "Lainnya…" yang berubah jadi text input
+    Optional    bool     // Text/TextArea boleh kosong; Multi boleh tanpa pilihan
+    Summary     func(selected []Option) string // Multi: ringkasan di bawah daftar, mis. total ukuran
     Default     []string // nilai awal; bisa dihitung dari deteksi sistem (port yang sedang listening)
     Placeholder string
     Validate    func(string) error    // Text/TextArea/Other: "port harus 1-65535"
@@ -520,14 +535,14 @@ type Answer struct {
     Values []string // Single: 1 elemen; Multi: 0..n
     Other  string   // teks "Lainnya…" bila dipilih
     Text   string   // Text/TextArea
-    Yes    bool     // Confirm
+    // Confirm memakai Values = ["yes"] / ["no"]; helper Answer.Yes(), Value(), Has()
 }
 type Answers map[string]Answer
 
 type Form struct {
     Title     string
     Questions []Question
-    Review    bool // tampilkan layar ringkasan sebelum selesai (default true bila >1 pertanyaan)
+    SkipReview bool // ringkasan otomatis muncul bila ada >1 pertanyaan; true untuk melewatinya
 }
 ```
 
@@ -616,7 +631,7 @@ diakhiri layar ringkasan:
    HTTPS       Ya, Let's Encrypt — email admin@contoh.com
    WebSocket   Tidak
 
- ❯ Lanjut lihat command   ·   e ubah jawaban   ·   esc batal
+ ❯ Lanjut          (angka / enter pada jawaban untuk mengubahnya, esc kembali)
 ```
 
 #### Perilaku
@@ -698,10 +713,11 @@ peringatan merah "jangan tutup sesi ini".
    `docs/PLAN.md`, commit, dan push ke branch `claude/exciting-mendel-pfvegk`. Ini menjadi commit
    pertama repo sekaligus rujukan saat implementasi berjalan.
 1. **Fondasi** *(selesai 2026-09-16: directive `go 1.25.0`, dibangun dengan toolchain go1.27.1;
-   LICENSE menunggu keputusan user)* — `go mod init github.com/arif-rachim/ubuntu-tool`, `.gitignore`,
+   lisensi MIT)* — `go mod init github.com/arif-rachim/ubuntu-tool`, `.gitignore`,
    `Makefile` (build/install/test/lint/fmt, `-ldflags` inject versi), `README.md`, CI GitHub
    Actions (build linux/amd64 + linux/arm64, `go vet`, `go test ./...`).
-2. **Kerangka TUI** — `app` (stack+keymap+`Typing()`), `ui` (theme/layout/picker/datatable/detail/status),
+2. **Kerangka TUI** *(selesai 2026-09-16; `picker`/`datatable`/`detail` digeser ke fase 4 saat
+   pertama dipakai; diverifikasi di PTY 120×32 dan 60×24)* — `app` (stack+keymap+`Typing()`), `ui` (theme/layout/picker/datatable/detail/status),
    **`ui/ask` lengkap** (Single, Multi, Text, TextArea, Confirm, "Lainnya…", preview, chip
    multi-pertanyaan, ringkasan), `i18n`, layar `home` dengan menu berkelompok (semua modul masih
    placeholder). Tambah layar demo tersembunyi `ubt --demo-ask` untuk mencoba semua jenis pertanyaan.
