@@ -697,7 +697,8 @@ peringatan merah "jangan tutup sesi ini".
 0. **Commit plan dulu** *(diminta user — dikerjakan pertama)* — tulis dokumen ini ke repo sebagai
    `docs/PLAN.md`, commit, dan push ke branch `claude/exciting-mendel-pfvegk`. Ini menjadi commit
    pertama repo sekaligus rujukan saat implementasi berjalan.
-1. **Fondasi** — `go mod init github.com/arif-rachim/ubuntu-tool` (Go 1.23), `.gitignore`,
+1. **Fondasi** *(selesai 2026-09-16: directive `go 1.25.0`, dibangun dengan toolchain go1.27.1;
+   LICENSE menunggu keputusan user)* — `go mod init github.com/arif-rachim/ubuntu-tool`, `.gitignore`,
    `Makefile` (build/install/test/lint/fmt, `-ldflags` inject versi), `README.md`, CI GitHub
    Actions (build linux/amd64 + linux/arm64, `go vet`, `go test ./...`).
 2. **Kerangka TUI** — `app` (stack+keymap+`Typing()`), `ui` (theme/layout/picker/datatable/detail/status),

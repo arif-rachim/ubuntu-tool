@@ -1,0 +1,14 @@
+# Hasil build
+/bin/
+/dist/
+
+# Test & coverage
+*.test
+*.out
+coverage.*
+
+# Editor & OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
