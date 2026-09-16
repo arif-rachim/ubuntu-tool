@@ -770,7 +770,10 @@ peringatan merah "jangan tutup sesi ini".
    dipakai juga modul Diagnosa; `sys/tlscheck` dipakai juga modul Web; pemeriksaan TCP/HTTP/TLS/DNS
    native Go dengan pembanding DNS publik 1.1.1.1; wizard masuk menyarankan modul Firewall/Web lewat
    `check.Result.Next`; diverifikasi di PTY ke example.com dan http.server yang bind 127.0.0.1)* — info interface/route/DNS, koneksi aktif, wizard konek keluar & diakses dari luar.
-10. **Modul Paket** — daftar/cari/detail, update & upgrade (Stream), reboot-required, auto-upgrade,
+10. **Modul Paket** *(selesai 2026-09-16; `ui.Filter` bersama; update keamanan diurutkan paling atas;
+    pemegang lock dideteksi dari proses apt/dpkg (mengecualikan unattended-upgrade-shutdown yang
+    selalu berjalan); install/remove/purge/upgrade interaktif supaya prompt dpkg bisa dijawab; repo
+    deb822 & .list, tambah PPA berisiko tinggi; diverifikasi di PTY: cari htop, daftar terpasang, riwayat)* — daftar/cari/detail, update & upgrade (Stream), reboot-required, auto-upgrade,
     riwayat apt, perbaikan dpkg.
 11. **Modul Penjadwalan** — tabel terpadu cron + timer, penjelas ekspresi, wizard cron.d & timer.
 12. **Modul User & SSH** — user/grup/sudo, SSH key & authorized_keys, perbaikan permission,
