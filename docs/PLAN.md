@@ -751,7 +751,11 @@ peringatan merah "jangan tutup sesi ini".
 5. **Modul Resource** *(selesai 2026-09-16; `screens/procact` dipakai bersama modul Ports; auto-refresh
    2 detik dengan jeda `p`, urut CPU/RAM `s`, temuan load/RAM/swap/PSI, riwayat OOM via journalctl,
    aksi renice/TERM/KILL/stop unit/docker stop; diverifikasi di PTY dengan proses `yes`)* — hampir seluruhnya read-only dari `/proc`, memakai ulang `sys/procs`. Cepat & aman.
-6. **Modul Disk & Storage** — ringkasan fs/inode/lsblk, walker drill-down, file terhapus-tapi-terbuka,
+6. **Modul Disk & Storage** *(selesai 2026-09-16; filesystem dibaca native dari mountinfo + statfs,
+   bukan findmnt; penjelajah folder native seperti du -x (hardlink sekali, folder terkunci dicatat,
+   bisa dibatalkan) sekaligus mengumpulkan file terbesar; file terhapus-tapi-terbuka dengan aksi restart
+   unit/hentikan proses; bersih-bersih apt/autoremove/journal/snap/docker/log rotasi dengan perkiraan
+   ukuran; wizard swapfile + backup & validasi fstab; diverifikasi di PTY pada disk nyata)* — ringkasan fs/inode/lsblk, walker drill-down, file terhapus-tapi-terbuka,
    bersih-bersih terpandu, wizard swapfile (Plan pertama yang nyata).
 7. **Modul Log** — journal JSON, tampilan siap pakai, follow (Stream pertama yang nyata), `/var/log`.
 8. **Modul Systemd** — list/filter (JSON), detail, log (pakai ulang modul Log), aksi lifecycle.
