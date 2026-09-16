@@ -757,7 +757,10 @@ peringatan merah "jangan tutup sesi ini".
    unit/hentikan proses; bersih-bersih apt/autoremove/journal/snap/docker/log rotasi dengan perkiraan
    ukuran; wizard swapfile + backup & validasi fstab; diverifikasi di PTY pada disk nyata)* — ringkasan fs/inode/lsblk, walker drill-down, file terhapus-tapi-terbuka,
    bersih-bersih terpandu, wizard swapfile (Plan pertama yang nyata).
-7. **Modul Log** — journal JSON, tampilan siap pakai, follow (Stream pertama yang nyata), `/var/log`.
+7. **Modul Log** *(selesai 2026-09-16; `--output-fields` supaya JSON ringkas; mode ikuti melanjutkan
+   dengan `--after-cursor` sehingga tidak ada entri yang terlewat antara pembacaan awal dan `-f`;
+   `ui.Viewer` untuk teks panjang; aksi: journal permanen, vacuum, tambah user ke grup adm;
+   `EntriesModel` siap dipakai modul Service; diverifikasi di PTY dengan `logger -p user.err`)* — journal JSON, tampilan siap pakai, follow (Stream pertama yang nyata), `/var/log`.
 8. **Modul Systemd** — list/filter (JSON), detail, log (pakai ulang modul Log), aksi lifecycle.
 9. **Modul Network** — info interface/route/DNS, koneksi aktif, wizard konek keluar & diakses dari luar.
 10. **Modul Paket** — daftar/cari/detail, update & upgrade (Stream), reboot-required, auto-upgrade,
