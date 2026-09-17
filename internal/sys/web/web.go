@@ -249,8 +249,8 @@ func ProxyConfig(s ProxySpec) string {
 
 // ProxyPlan menulis site, mengaktifkannya, memvalidasi, lalu reload nginx.
 func ProxyPlan(s ProxySpec, p Paths, ufwActive bool) run.Plan {
-	avail := filepath.Join(p.SitesAvailable, s.Domain)
-	enabled := filepath.Join(p.SitesEnabled, s.Domain)
+	avail := filepath.Join(p.SitesAvailable, run.FileName(s.Domain))
+	enabled := filepath.Join(p.SitesEnabled, run.FileName(s.Domain))
 	var steps []run.Command
 	if ufwActive {
 		steps = append(steps, run.Command{Title: "Buka port 80 & 443 di firewall", Argv: []string{"ufw", "allow", "Nginx Full"}, NeedsRoot: true,
@@ -277,7 +277,10 @@ func ProxyPlan(s ProxySpec, p Paths, ufwActive bool) run.Plan {
 
 // SiteTogglePlan mengaktifkan atau menonaktifkan site.
 func SiteTogglePlan(site Site, p Paths, enable bool) run.Plan {
-	link := filepath.Join(p.SitesEnabled, site.Name)
+	// Path dibangun ulang dari nama, bukan dari site.Path, supaya symlink selalu di dalam folder nginx.
+	name := run.FileName(site.Name)
+	link := filepath.Join(p.SitesEnabled, name)
+	site.Path = filepath.Join(p.SitesAvailable, name)
 	var step run.Command
 	if enable {
 		step = run.Command{Title: "Aktifkan site " + site.Name, Argv: []string{"ln", "-sfn", site.Path, link}, NeedsRoot: true,
@@ -288,8 +291,10 @@ func SiteTogglePlan(site Site, p Paths, enable bool) run.Plan {
 	}
 	return run.Plan{
 		Title: step.Title,
-		Steps: []run.Command{step, {Title: "Muat ulang nginx", Argv: []string{"systemctl", "reload", "nginx"}, NeedsRoot: true, Risk: risk.Caution}},
-		Check: &run.Command{Title: "Validasi konfigurasi nginx", Argv: []string{"nginx", "-t"}, NeedsRoot: true},
+		Steps: []run.Command{step, {Title: "Muat ulang nginx", Argv: []string{"systemctl", "reload", "nginx"}, NeedsRoot: true, Risk: risk.Caution,
+			Explain: []run.Line{{Token: "systemctl reload nginx", Meaning: "terapkan konfigurasi baru tanpa memutus koneksi yang sedang berjalan"}}}},
+		Check: &run.Command{Title: "Validasi konfigurasi nginx", Argv: []string{"nginx", "-t"}, NeedsRoot: true,
+			Explain: []run.Line{{Token: "nginx -t", Meaning: "periksa konfigurasi; bila gagal, nginx tidak di-reload sehingga situs lain tetap jalan"}}},
 	}
 }
 

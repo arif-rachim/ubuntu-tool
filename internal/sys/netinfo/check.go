@@ -10,6 +10,7 @@ import (
 	"net/netip"
 	"net/url"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"syscall"
@@ -42,6 +43,21 @@ type Target struct {
 	Scheme string // http, https, atau kosong
 }
 
+var hostnameRe = regexp.MustCompile(`^[A-Za-z0-9_]([A-Za-z0-9_-]*[A-Za-z0-9_])?(\.[A-Za-z0-9_]([A-Za-z0-9_-]*[A-Za-z0-9_])?)*\.?$`)
+
+// ValidHost menerima nama host (contoh.com, localhost) atau alamat IP. Selain aman dipakai di
+// pemeriksaan native, hasilnya juga aman dipakai sebagai argumen command (tidak diawali "-").
+func ValidHost(host string) error {
+	host = strings.Trim(host, "[]")
+	if _, err := netip.ParseAddr(host); err == nil {
+		return nil
+	}
+	if len(host) > 253 || !hostnameRe.MatchString(host) {
+		return errors.New("nama host atau IP tidak valid")
+	}
+	return nil
+}
+
 // ParseTarget menerima "contoh.com", "contoh.com:5432", "1.2.3.4", atau "https://contoh.com/path".
 func ParseTarget(s string) (Target, error) {
 	s = strings.TrimSpace(s)
@@ -52,6 +68,9 @@ func ParseTarget(s string) (Target, error) {
 		u, err := url.Parse(s)
 		if err != nil || u.Hostname() == "" {
 			return Target{}, errors.New("URL tidak valid")
+		}
+		if err := ValidHost(u.Hostname()); err != nil {
+			return Target{}, err
 		}
 		t := Target{Host: u.Hostname(), Port: u.Port(), Scheme: u.Scheme}
 		if t.Port == "" {
@@ -68,6 +87,9 @@ func ParseTarget(s string) (Target, error) {
 	}
 	if strings.ContainsAny(host, " /") {
 		return Target{}, errors.New("nama host tidak boleh mengandung spasi atau /")
+	}
+	if err := ValidHost(host); err != nil {
+		return Target{}, err
 	}
 	if port != "" {
 		if n, err := strconv.Atoi(port); err != nil || n < 1 || n > 65535 {

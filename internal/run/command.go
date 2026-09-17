@@ -6,6 +6,7 @@ package run
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/arif-rachim/ubuntu-tool/internal/risk"
@@ -75,6 +76,17 @@ func (c Command) Script(isRoot bool) string {
 
 // UsesSudo melaporkan apakah command ini akan diawali sudo.
 func (c Command) UsesSudo(isRoot bool) bool { return c.NeedsRoot && !isRoot }
+
+// FileName mengubah nama (site, jadwal, dll.) menjadi satu komponen path yang aman digabung ke folder
+// sistem: bagian folder dibuang, sehingga "../../etc/passwd" tidak bisa keluar dari folder tujuan.
+// Nama yang tidak menyisakan apa pun menjadi "_".
+func FileName(name string) string {
+	base := filepath.Base(strings.TrimRight(name, "/"))
+	if base == "." || base == ".." || base == "/" || base == "" {
+		return "_"
+	}
+	return base
+}
 
 // JoinShell menggabungkan argumen menjadi satu baris shell yang aman di-copy-paste.
 func JoinShell(args []string) string {

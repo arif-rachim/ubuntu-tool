@@ -154,10 +154,10 @@ func (m *Model) key(k string) (nav.Screen, tea.Cmd) {
 			return m, nav.Push(ask.New(ask.Form{ID: "tracepath", Title: "Lacak rute", Questions: []ask.Question{{
 				ID: "host", Prompt: "Lacak rute jaringan ke host mana?", Kind: ask.Text, Placeholder: "1.1.1.1",
 				Validate: func(s string) error {
-					if strings.TrimSpace(s) == "" || strings.ContainsAny(s, " /:") {
+					if strings.TrimSpace(s) == "" || strings.ContainsAny(s, " /") || strings.Count(s, ":") == 1 {
 						return errors.New("isi nama host atau IP saja, tanpa port atau URL")
 					}
-					return nil
+					return netinfo.ValidHost(strings.TrimSpace(s))
 				},
 			}}}))
 		case "i":

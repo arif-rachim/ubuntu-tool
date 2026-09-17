@@ -155,7 +155,7 @@ func writeFile(title, path, content, label string) run.Command {
 
 // CreateCronPlan membuat jadwal cron di /etc/cron.d.
 func CreateCronPlan(s Spec) run.Plan {
-	path := "/etc/cron.d/" + ManagedPrefix + s.Name
+	path := "/etc/cron.d/" + run.FileName(ManagedPrefix+s.Name)
 	return run.Plan{
 		Title: "Buat jadwal cron " + ManagedPrefix + s.Name,
 		Steps: []run.Command{writeFile("Tulis "+path, path, CronFile(s), "(file cron.d)")},
@@ -169,7 +169,7 @@ func CreateTimerPlan(s Spec) (run.Plan, error) {
 	if err != nil {
 		return run.Plan{}, err
 	}
-	name := ManagedPrefix + s.Name
+	name := run.FileName(ManagedPrefix + s.Name)
 	svc, tmr := "/etc/systemd/system/"+name+".service", "/etc/systemd/system/"+name+".timer"
 	return run.Plan{
 		Title: "Buat systemd timer " + name,
@@ -201,13 +201,15 @@ func RunNowPlan(j Job) run.Plan {
 		return run.Single(run.Command{Title: "Jalankan " + j.Name + " sekarang", Argv: []string{j.Command}, NeedsRoot: true,
 			Explain: []run.Line{{Token: j.Command, Meaning: "script yang biasanya dijalankan run-parts"}}, Risk: risk.Caution})
 	}
-	root := j.User != "" && j.User != "root"
 	argv := []string{"bash", "-c", j.Command}
-	if root {
-		argv = []string{"sudo", "-u", j.User, "bash", "-c", j.Command}
+	explain := []run.Line{{Token: "bash -c", Meaning: "jalankan command persis seperti di cron"}}
+	if j.User != "" && j.User != "root" {
+		// runuser (bukan sudo -u) karena command sudah dijalankan sebagai root lewat NeedsRoot.
+		argv = append([]string{"runuser", "-u", j.User, "--"}, argv...)
+		explain = append([]run.Line{{Token: "runuser -u " + j.User, Meaning: "jalankan sebagai user pemilik jadwal, seperti yang dilakukan cron"}}, explain...)
 	}
 	return run.Single(run.Command{Title: "Jalankan command jadwal sekarang", Argv: argv, NeedsRoot: true,
-		Explain: []run.Line{{Token: "bash -c", Meaning: "jalankan command persis seperti di cron"}},
+		Explain: explain,
 		Effect:  "Catatan: cron memakai environment & PATH yang lebih minim daripada terminal, jadi hasil di sini bisa berbeda.",
 		Risk:    risk.Caution})
 }
@@ -215,18 +217,22 @@ func RunNowPlan(j Job) run.Plan {
 // RemovePlan menghapus jadwal yang dibuat ubt.
 func RemovePlan(j Job) run.Plan {
 	if j.Kind == KindTimer {
-		svc := strings.TrimSuffix(j.Name, ".timer")
+		svc := strings.TrimSuffix(run.FileName(j.Name), ".timer")
 		return run.Plan{
 			Title: "Hapus timer " + j.Name,
 			Steps: []run.Command{
 				{Title: "Matikan timer", Argv: []string{"systemctl", "disable", "--now", j.Name}, NeedsRoot: true,
-					Explain: []run.Line{{Token: "disable --now", Meaning: "hentikan dan jangan aktifkan saat boot"}}},
+					Explain: []run.Line{{Token: "disable --now", Meaning: "hentikan dan jangan aktifkan saat boot"}}, Risk: risk.Caution,
+					Effect: "Jadwal ini tidak akan berjalan lagi."},
 				{Title: "Hapus file unit", Argv: []string{"rm", "-f", "/etc/systemd/system/" + svc + ".timer", "/etc/systemd/system/" + svc + ".service"}, NeedsRoot: true,
 					Explain: []run.Line{{Token: "rm -f", Meaning: "hapus file unit timer & service buatan ubt"}}, Risk: risk.Caution},
-				{Title: "Muat ulang systemd", Argv: []string{"systemctl", "daemon-reload"}, NeedsRoot: true},
+				{Title: "Muat ulang systemd", Argv: []string{"systemctl", "daemon-reload"}, NeedsRoot: true,
+					Explain: []run.Line{{Token: "daemon-reload", Meaning: "beri tahu systemd bahwa file unit sudah dihapus"}}},
 			},
 		}
 	}
-	return run.Single(run.Command{Title: "Hapus " + j.Source, Argv: []string{"rm", "-f", j.Source}, NeedsRoot: true,
-		Explain: []run.Line{{Token: "rm -f " + j.Source, Meaning: "cron otomatis berhenti menjalankan jadwal di file ini"}}, Risk: risk.Caution})
+	// Hanya file langsung di /etc/cron.d yang boleh dihapus dari sini.
+	source := "/etc/cron.d/" + run.FileName(j.Source)
+	return run.Single(run.Command{Title: "Hapus " + source, Argv: []string{"rm", "-f", source}, NeedsRoot: true,
+		Explain: []run.Line{{Token: "rm -f " + source, Meaning: "cron otomatis berhenti menjalankan jadwal di file ini"}}, Risk: risk.Caution})
 }
