@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Membangun binary rilis linux/amd64 + linux/arm64 beserta SHA256SUMS di ./dist.
-# Dengan --publish: membuat tag git, mendorongnya, dan membuat GitHub release (butuh gh yang sudah login).
+# Dengan --publish: membuat tag git dan mendorongnya; workflow .github/workflows/release.yml lalu
+# membangun ulang binary di GitHub Actions dan menerbitkannya di halaman Releases.
 #
-#   scripts/release.sh v0.1.0             # build + checksum saja
-#   scripts/release.sh v0.1.0 --publish   # build + tag + GitHub release
+#   scripts/release.sh v0.1.0             # build + checksum lokal saja (uji sebelum rilis)
+#   scripts/release.sh v0.1.0 --publish   # + tag & push → GitHub Actions membuat rilis
 set -euo pipefail
 
 tag="${1:-}"
@@ -29,8 +30,9 @@ echo
 cat dist/SHA256SUMS
 
 if [[ "$publish" == "--publish" ]]; then
-	command -v gh >/dev/null || { echo "gh tidak ditemukan; pasang GitHub CLI atau unggah ./dist secara manual" >&2; exit 1; }
 	git tag -a "$tag" -m "ubt $tag"
 	git push origin "$tag"
-	gh release create "$tag" dist/* --title "ubt $tag" --generate-notes
+	echo
+	echo "Tag $tag dikirim. GitHub Actions sedang membangun rilisnya:"
+	echo "  https://github.com/arif-rachim/ubuntu-tool/actions/workflows/release.yml"
 fi

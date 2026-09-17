@@ -31,7 +31,7 @@ build-all:
 		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build $(GOFLAGS_BUILD) -o $$out ./cmd/ubt || exit 1; \
 	done
 
-# make release TAG=v0.1.0 [PUBLISH=1]
+# make release TAG=v0.1.0 [PUBLISH=1]  (PUBLISH: push tag, rilis dibuat GitHub Actions)
 release:
 	scripts/release.sh $(TAG) $(if $(PUBLISH),--publish,)
 

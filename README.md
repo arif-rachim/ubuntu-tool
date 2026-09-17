@@ -59,6 +59,13 @@ sudo install -m 0755 ubt-linux-$arch /usr/local/bin/ubt
 ubt doctor
 ```
 
+Binary juga bisa diunduh langsung dari halaman
+[Releases](https://github.com/arif-rachim/ubuntu-tool/releases):
+
+- **Rilis stabil** (`vX.Y.Z`) — `releases/latest/download/ubt-linux-amd64` atau `…-arm64`.
+- **Nightly** — build otomatis setiap ada perubahan di `main`, untuk mencoba fitur terbaru:
+  `https://github.com/arif-rachim/ubuntu-tool/releases/download/nightly/ubt-linux-amd64`
+
 ### Dari source
 
 Butuh Go (lihat versi di `go.mod`) dan `make` (`sudo apt install make`).
@@ -89,9 +96,19 @@ make all              # fmt-check + vet + test + build
 make test
 make lint             # gofmt + go vet (+ golangci-lint bila terinstall)
 make build-all        # binary statis linux/amd64 & linux/arm64 di ./dist
-make release TAG=v0.1.0            # build rilis + SHA256SUMS
-make release TAG=v0.1.0 PUBLISH=1  # + tag git + GitHub release (butuh gh)
+make release TAG=v0.1.0            # build rilis + SHA256SUMS secara lokal
+make release TAG=v0.1.0 PUBLISH=1  # + push tag → GitHub Actions menerbitkan rilis
 ```
+
+Build & rilis otomatis (`.github/workflows/release.yml`):
+
+| Pemicu | Hasil |
+|---|---|
+| push ke `main` | pra-rilis `nightly` diperbarui (binary amd64/arm64 + `SHA256SUMS`) |
+| push tag `vX.Y.Z` | rilis `ubt vX.Y.Z` dengan catatan rilis otomatis |
+| Actions → Release → *Run workflow* | memperbarui `nightly` secara manual |
+
+Setiap build menjalankan gofmt, vet, dan `go test -race` dulu; binary tidak diterbitkan bila test gagal.
 
 ## Lisensi
 
