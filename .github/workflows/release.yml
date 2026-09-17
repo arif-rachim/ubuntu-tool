@@ -1,0 +1,88 @@
+name: Release
+
+# Membangun binary dan menaruhnya di halaman Releases GitHub supaya bisa diunduh langsung:
+# - push tag vX.Y.Z  → rilis resmi "ubt vX.Y.Z" (menjadi releases/latest)
+# - push ke main     → pra-rilis "nightly" yang selalu berisi build terbaru dari main
+# - manual (Actions → Release → Run workflow) → memperbarui "nightly" dari main
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Tentukan versi
+        id: ver
+        run: |
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            echo "version=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+            echo "tag=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+            echo "nightly=false" >> "$GITHUB_OUTPUT"
+          elif [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "::error::nightly hanya dibangun dari main (dijalankan dari $GITHUB_REF)"
+            exit 1
+          else
+            echo "version=nightly-$(git rev-parse --short=12 HEAD)" >> "$GITHUB_OUTPUT"
+            echo "tag=nightly" >> "$GITHUB_OUTPUT"
+            echo "nightly=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Test
+        run: |
+          make fmt-check
+          make vet
+          go test -race ./...
+
+      - name: Build linux/amd64 + linux/arm64
+        run: |
+          rm -rf dist
+          make build-all VERSION="${{ steps.ver.outputs.version }}"
+          ./dist/ubt-linux-amd64 version
+          cd dist && sha256sum ubt-* > SHA256SUMS && cat SHA256SUMS
+
+      - name: Terbitkan rilis
+        if: steps.ver.outputs.nightly == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.ver.outputs.tag }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+          else
+            gh release create "$TAG" dist/* --title "ubt $TAG" --generate-notes --verify-tag
+          fi
+
+      - name: Perbarui pra-rilis nightly
+        if: steps.ver.outputs.nightly == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          # Tag nightly dipindah ke commit ini; rilis lama dihapus lalu dibuat ulang supaya
+          # daftar file dan catatan selalu sesuai build terbaru.
+          gh release delete nightly --yes --cleanup-tag >/dev/null 2>&1 || true
+          git push origin ":refs/tags/nightly" >/dev/null 2>&1 || true
+          gh release create nightly dist/* \
+            --prerelease \
+            --target "$GITHUB_SHA" \
+            --title "ubt nightly ($VERSION)" \
+            --notes "Build otomatis dari \`main\` commit $GITHUB_SHA. Belum tentu stabil; untuk server produksi pakai rilis bertag vX.Y.Z."

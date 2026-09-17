@@ -1,0 +1,21 @@
+ ● Jadwal   ○ Bersihkan   ○ Template   ○ Ringkasan
+
+ Mau pakai jadwal jenis apa?
+
+ ❯ 1. systemd timer (Disarankan)
+      Log masuk journal, tetap jalan walau server sempat
+      mati saat jadwalnya
+   2. cron
+      Lebih sederhana dan umum, tapi PATH minim dan log
+      harus diatur sendiri
+   3. at
+      Sekali jalan — paket at belum terinstall
+   4. Lainnya…
+      Ketik sendiri
+
+
+
+
+
+
+
