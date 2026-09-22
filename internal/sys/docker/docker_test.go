@@ -168,3 +168,39 @@ volumes:
 		t.Errorf("%+v %v", p, err)
 	}
 }
+
+func TestPublishedPorts(t *testing.T) {
+	cs := ParseContainers(`{"ID":"abc123def456","Names":"web","Image":"nginx","State":"running","Ports":"0.0.0.0:8080->80/tcp, [::]:8080->80/tcp"}
+{"ID":"ffff0000","Names":"db","Image":"postgres:18","State":"running","Ports":"127.0.0.1:5432->5432/tcp"}
+{"ID":"eeee1111","Names":"internal","Image":"redis","State":"running","Ports":"6379/tcp"}`)
+	pub := PublishedPorts(cs)
+	if len(pub) != 2 {
+		t.Fatalf("port terpublikasi = %+v", pub)
+	}
+	// Baris IPv4 lebih informatif daripada [::] dan tidak boleh ditimpa.
+	if got := pub["8080/tcp"]; got.Container != "web" || got.HostAddr != "0.0.0.0" || got.Target != "80" {
+		t.Errorf("8080/tcp = %+v", got)
+	}
+	if got := pub["5432/tcp"]; got.Container != "db" || got.HostAddr != "127.0.0.1" {
+		t.Errorf("5432/tcp = %+v", got)
+	}
+	// Port yang hanya dibuka di dalam container (tanpa publish) tidak dihitung.
+	if _, ok := pub["6379/tcp"]; ok {
+		t.Error("port tanpa publish ikut terdaftar")
+	}
+}
+
+func TestNameByID(t *testing.T) {
+	cs := ParseContainers(`{"ID":"abc123def456789","Names":"web","State":"running"}`)
+	for _, id := range []string{"abc123def456789", "abc123def456", "abc123def456789abc"} {
+		if got := NameByID(cs, id); got != "web" {
+			t.Errorf("NameByID(%q) = %q", id, got)
+		}
+	}
+	if got := NameByID(cs, "zzz999"); got != "" {
+		t.Errorf("ID asing = %q", got)
+	}
+	if got := NameByID(cs, ""); got != "" {
+		t.Errorf("ID kosong = %q", got)
+	}
+}

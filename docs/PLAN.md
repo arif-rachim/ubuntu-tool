@@ -876,6 +876,20 @@ peringatan merah "jangan tutup sesi ini".
     bug ini baru ketahuan saat ekstensinya benar-benar dipasang, dan berlaku untuk semua versi)* —
     dukungan PostgreSQL 18, pemilihan versi & cluster, dan integrasi ufw di wizard akses jaringan.
 
+21. **Ports & Proses: koneksi aktif & nama container** *(selesai 2026-09-22; `ReadListeners` sekalian
+    mengumpulkan socket TCP ESTABLISHED dalam sekali baca /proc/net (tanpa I/O tambahan), lalu
+    `ConnectionsTo` memasangkannya ke listener: protokol & keluarga alamat harus sama dan alamat lokal
+    cocok — pemisahan IPv4/IPv6 sengaja dijaga supaya aplikasi yang mendengarkan di 0.0.0.0 dan [::]
+    sekaligus tidak menghitung koneksi dua kali; daftar port mendapat kolom Konek, detail
+    menampilkan asal koneksi yang dikelompokkan per alamat (terbanyak dulu, maks 8 baris) beserta
+    berapa yang datang dari server sendiri; nama container diambil dari `docker ps` sekali jalan —
+    untuk proses yang berjalan DI DALAM container (lewat cgroup) maupun port host yang dipublikasikan
+    container lewat docker-proxy (lewat kolom Ports), sehingga baris docker-proxy tidak lagi anonim;
+    pesan "pemilik tidak terlihat" diperbaiki: sebagai root penyebabnya bukan izin user melainkan
+    proses di namespace lain — diverifikasi dengan membandingkan jumlah koneksi ubt terhadap
+    /proc/net/tcp pada saat yang sama (4 vs 4) di server uji dengan container publish port)* —
+    koneksi aktif per port, nama container, dan diagnosa pemilik port yang jujur.
+
 Urutan sengaja menaruh modul yang **mayoritas read-only** (Resource, Disk, Log) sebelum modul yang
 berisiko mengunci user dari server (User & SSH, Firewall), supaya lapisan eksekusi, Plan, dan Stream
 sudah teruji di kasus yang aman.

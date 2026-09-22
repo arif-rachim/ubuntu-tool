@@ -3,6 +3,7 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -10,11 +11,13 @@ import (
 	"os"
 	"os/exec"
 	"sort"
+	"strconv"
 	"strings"
 	"text/tabwriter"
 	"time"
 
 	"github.com/arif-rachim/ubuntu-tool/internal/run"
+	"github.com/arif-rachim/ubuntu-tool/internal/sys/docker"
 	"github.com/arif-rachim/ubuntu-tool/internal/sys/ports"
 	"github.com/arif-rachim/ubuntu-tool/internal/sys/procs"
 )
@@ -145,11 +148,20 @@ func dedupe(xs []string) []string {
 
 // PortJSON adalah satu port listening untuk `ubt ports --json`.
 type PortJSON struct {
-	Proto     string        `json:"proto"`
-	Address   string        `json:"address"`
-	Port      uint16        `json:"port"`
-	Scope     string        `json:"scope"` // all, localhost, specific
-	Processes []ProcessJSON `json:"processes"`
+	Proto       string        `json:"proto"`
+	Address     string        `json:"address"`
+	Port        uint16        `json:"port"`
+	Scope       string        `json:"scope"` // all, localhost, specific
+	Processes   []ProcessJSON `json:"processes"`
+	Connections int           `json:"connections"`         // koneksi TCP yang sedang terbuka ke port ini
+	Clients     []ClientJSON  `json:"clients,omitempty"`   // asal koneksi, terbanyak dulu
+	Container   string        `json:"container,omitempty"` // container Docker di balik port ini
+}
+
+// ClientJSON adalah satu alamat asal koneksi.
+type ClientJSON struct {
+	Address     string `json:"address"`
+	Connections int    `json:"connections"`
 }
 
 // ProcessJSON adalah pemilik port.
@@ -178,6 +190,15 @@ func Ports(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "ubt ports: %v\n", err)
 		return 1
 	}
+	var containers []docker.Container
+	var published map[string]docker.PublishedPort
+	if dc := docker.NewClient(); dc.Bin != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		containers = dc.ReadContainers(ctx, run.NewReal())
+		published = docker.PublishedPorts(containers)
+	}
+
 	var out []PortJSON
 	for _, l := range snap.Listeners {
 		p := PortJSON{Proto: string(l.Proto), Address: l.Local.Addr().String(), Port: l.Local.Port(), Processes: []ProcessJSON{}}
@@ -195,6 +216,21 @@ func Ports(args []string, stdout, stderr io.Writer) int {
 				continue
 			}
 			p.Processes = append(p.Processes, ProcessJSON{PID: pid, Name: pr.Name, User: pr.User, Command: strings.Join(pr.Cmdline, " "), Unit: pr.Cgroup.Unit, Container: pr.Cgroup.Container})
+			if pr.Cgroup.Container != "" && p.Container == "" {
+				if name := docker.NameByID(containers, pr.Cgroup.Container); name != "" {
+					p.Container = name
+				}
+			}
+		}
+		if p.Container == "" {
+			if pub, ok := published[fmt.Sprintf("%d/%s", l.Local.Port(), l.Proto)]; ok && ownedByProxy(p.Processes) {
+				p.Container = pub.Container
+			}
+		}
+		conns := snap.ConnectionsTo(l)
+		p.Connections = len(conns)
+		for _, g := range ports.GroupByRemote(conns) {
+			p.Clients = append(p.Clients, ClientJSON{Address: g.Addr.WithZone("").String(), Connections: g.Count})
 		}
 		out = append(out, p)
 	}
@@ -208,7 +244,8 @@ func Ports(args []string, stdout, stderr io.Writer) int {
 		return 0
 	}
 	w := tabwriter.NewWriter(stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "PROTO\tALAMAT\tPORT\tAKSES\tPROSES")
+	fmt.Fprintln(w, "PROTO\tALAMAT\tPORT\tAKSES\tKONEKSI\tPROSES")
+	isRoot := run.IsRoot()
 	for _, p := range out {
 		var names []string
 		for _, pr := range p.Processes {
@@ -216,12 +253,41 @@ func Ports(args []string, stdout, stderr io.Writer) int {
 		}
 		owner := strings.Join(names, ", ")
 		if owner == "" {
-			owner = "? (milik user lain; jalankan dengan sudo)"
+			owner = unknownOwner(isRoot)
 		}
-		fmt.Fprintf(w, "%s\t%s\t%d\t%s\t%s\n", p.Proto, p.Address, p.Port, map[string]string{"all": "dari mana saja", "localhost": "hanya server ini", "specific": "IP tertentu"}[p.Scope], owner)
+		if p.Container != "" {
+			owner += " → container " + p.Container
+		}
+		conn := "—"
+		if p.Connections > 0 {
+			conn = strconv.Itoa(p.Connections)
+		}
+		fmt.Fprintf(w, "%s\t%s\t%d\t%s\t%s\t%s\n", p.Proto, p.Address, p.Port, map[string]string{"all": "dari mana saja", "localhost": "hanya server ini", "specific": "IP tertentu"}[p.Scope], conn, owner)
 	}
 	w.Flush()
 	return 0
+}
+
+// unknownOwner menjelaskan port tanpa pemilik yang terlihat. Sebagai root, penyebabnya bukan izin.
+func unknownOwner(isRoot bool) string {
+	if isRoot {
+		return "? (proses tidak terlihat di /proc — kemungkinan di namespace/container lain)"
+	}
+	return "? (milik user lain; jalankan dengan sudo)"
+}
+
+// ownedByProxy melaporkan apakah port dipegang proses penerus milik Docker, atau tidak ada
+// pemiliknya sama sekali — dua kondisi yang membuat nama container lebih berguna daripada nama proses.
+func ownedByProxy(ps []ProcessJSON) bool {
+	if len(ps) == 0 {
+		return true
+	}
+	for _, p := range ps {
+		if !strings.Contains(p.Name, "docker-proxy") && !strings.Contains(p.Name, "rootlesskit") {
+			return false
+		}
+	}
+	return true
 }
 
 // HistoryFile dapat diganti saat test.

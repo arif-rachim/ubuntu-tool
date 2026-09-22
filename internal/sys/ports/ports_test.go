@@ -53,8 +53,8 @@ func TestParseProcNetFixture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(socks) != 4 {
-		t.Fatalf("%d socket, ingin 4", len(socks))
+	if len(socks) != 7 {
+		t.Fatalf("%d socket, ingin 7", len(socks))
 	}
 	want := []struct {
 		local  string
@@ -66,6 +66,9 @@ func TestParseProcNetFixture(t *testing.T) {
 		{"127.0.0.53:53", true, 991, 8988},
 		{"0.0.0.0:8080", true, 1000, 50001},
 		{"192.168.1.215:22", false, 0, 50002},
+		{"127.0.0.1:8080", false, 1000, 50010},
+		{"192.168.1.215:8080", false, 1000, 50011},
+		{"192.168.1.215:8080", false, 1000, 50012},
 	}
 	for i, w := range want {
 		s := socks[i]
@@ -232,5 +235,82 @@ func TestReadListenersSistemNyata(t *testing.T) {
 	}
 	if _, err := ReadListeners("/proc"); err != nil {
 		t.Fatalf("membaca /proc nyata gagal: %v", err)
+	}
+}
+
+// Koneksi yang sedang terbuka dipasangkan ke listener yang menerimanya, dan tidak pernah
+// disalahartikan sebagai listener baru.
+func TestConnectionsTo(t *testing.T) {
+	if binary.NativeEndian.Uint16([]byte{1, 0}) != 1 {
+		t.Skip("fixture direkam di mesin little-endian")
+	}
+	root := fakeProc(t, true)
+	snap, err := ReadListeners(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Empat koneksi established di fixture (tiga ke :8080, satu ke :22) tidak boleh menambah listener.
+	if len(snap.Listeners) != 7 {
+		var got []string
+		for _, l := range snap.Listeners {
+			got = append(got, l.Proto.String()+" "+l.Local.String())
+		}
+		t.Fatalf("%d listener: %v", len(snap.Listeners), got)
+	}
+	if len(snap.Established) != 4 {
+		t.Fatalf("%d koneksi established, ingin 4", len(snap.Established))
+	}
+
+	find := func(port uint16, proto Proto, ipv6 bool) Listener {
+		t.Helper()
+		for _, l := range snap.Listeners {
+			if l.Local.Port() == port && l.Proto == proto && l.IPv6 == ipv6 {
+				return l
+			}
+		}
+		t.Fatalf("listener %s/%d ipv6=%v tidak ada", proto, port, ipv6)
+		return Listener{}
+	}
+
+	// Listener di 0.0.0.0 menerima koneksi ke alamat lokal mana pun.
+	conns := snap.ConnectionsTo(find(8080, TCP, false))
+	if len(conns) != 3 {
+		t.Fatalf("%d koneksi ke 0.0.0.0:8080, ingin 3", len(conns))
+	}
+	groups := GroupByRemote(conns)
+	if len(groups) != 2 || groups[0].Addr.String() != "192.168.1.10" || groups[0].Count != 2 {
+		t.Errorf("pengelompokan asal: %+v", groups)
+	}
+	if groups[1].Addr.String() != "127.0.0.1" || groups[1].Count != 1 {
+		t.Errorf("kelompok kedua: %+v", groups[1])
+	}
+	lokal := 0
+	for _, c := range conns {
+		if c.LocalClient() {
+			lokal++
+		}
+	}
+	if lokal != 1 {
+		t.Errorf("%d koneksi dari server sendiri, ingin 1", lokal)
+	}
+
+	// Listener IPv6 di port yang sama tidak ikut mengklaim koneksi IPv4: beda keluarga alamat,
+	// sehingga aplikasi yang mendengarkan di 0.0.0.0 dan [::] sekaligus tidak menghitung ganda.
+	if n := len(snap.ConnectionsTo(find(8080, TCP, true))); n != 0 {
+		t.Errorf("listener IPv6 :8080 mengklaim %d koneksi IPv4", n)
+	}
+	// Listener di alamat tertentu hanya menerima koneksi ke alamat itu.
+	if n := len(snap.ConnectionsTo(find(631, TCP, false))); n != 0 {
+		t.Errorf("127.0.0.1:631 = %d koneksi, ingin 0", n)
+	}
+	// UDP tidak punya koneksi yang bisa dilacak.
+	if snap.ConnectionsTo(find(5353, UDP, false)) != nil {
+		t.Error("UDP seharusnya tanpa daftar koneksi")
+	}
+}
+
+func TestGroupByRemoteKosong(t *testing.T) {
+	if got := GroupByRemote(nil); got != nil {
+		t.Errorf("tanpa koneksi = %v", got)
 	}
 }

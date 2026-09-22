@@ -215,6 +215,76 @@ func (c Client) Read(ctx context.Context, r run.Runner) Status {
 	return st
 }
 
+// ReadContainers membaca daftar container saja (tanpa image & pemakaian disk), untuk modul lain
+// yang hanya perlu tahu nama container — mis. Ports & Proses. Gagal = daftar kosong, bukan error:
+// pemanggilnya tetap berguna walau Docker tidak terpasang.
+func (c Client) ReadContainers(ctx context.Context, r run.Runner) []Container {
+	if c.Bin == "" {
+		return nil
+	}
+	out, _, err := r.Capture(ctx, c.Command("ps", "-a", "--no-trunc", "--format", "{{json .}}"))
+	if err != nil {
+		return nil
+	}
+	return ParseContainers(out)
+}
+
+// NameByID mencari nama container dari ID penuh maupun potongannya.
+func NameByID(cs []Container, id string) string {
+	if id == "" {
+		return ""
+	}
+	for _, c := range cs {
+		if c.ID == id || strings.HasPrefix(c.ID, id) || strings.HasPrefix(id, c.ID) {
+			return c.Name()
+		}
+	}
+	return ""
+}
+
+// PublishedPort adalah satu port host yang diteruskan ke container.
+type PublishedPort struct {
+	Container string // nama container
+	HostAddr  string // alamat di host, mis. "0.0.0.0" atau "127.0.0.1"
+	Target    string // port di dalam container, mis. "80"
+}
+
+// PublishedPorts memetakan "PORT_HOST/proto" ke container yang mempublikasikannya, dibaca dari
+// kolom Ports `docker ps` ("0.0.0.0:8080->80/tcp, [::]:8080->80/tcp").
+func PublishedPorts(cs []Container) map[string]PublishedPort {
+	out := map[string]PublishedPort{}
+	for _, c := range cs {
+		for _, p := range strings.Split(c.Ports, ",") {
+			host, target, ok := strings.Cut(strings.TrimSpace(p), "->")
+			if !ok {
+				continue // port yang hanya dibuka di dalam container (tanpa publish)
+			}
+			addr, hostPort := splitHostPort(host)
+			targetPort, proto, _ := strings.Cut(target, "/")
+			if hostPort == "" || proto == "" {
+				continue
+			}
+			key := hostPort + "/" + proto
+			// Baris IPv4 (0.0.0.0) lebih informatif daripada [::]; jangan ditimpa.
+			if prev, ok := out[key]; ok && !strings.HasPrefix(prev.HostAddr, "[") {
+				continue
+			}
+			out[key] = PublishedPort{Container: c.Name(), HostAddr: addr, Target: targetPort}
+		}
+	}
+	return out
+}
+
+// splitHostPort memisahkan "0.0.0.0:8080" atau "[::]:8080" menjadi alamat dan port.
+func splitHostPort(s string) (addr, port string) {
+	s = strings.TrimSpace(s)
+	i := strings.LastIndex(s, ":")
+	if i < 0 {
+		return "", s
+	}
+	return s[:i], s[i+1:]
+}
+
 func firstLine(s string) string {
 	for _, l := range strings.Split(s, "\n") {
 		if strings.TrimSpace(l) != "" {

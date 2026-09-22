@@ -30,6 +30,7 @@ const (
 // DetailModel menampilkan satu port beserta prosesnya dan menawarkan aksi.
 type DetailModel struct {
 	env    shared.Env
+	data   Data
 	target Target
 	parent *procs.Process
 	offset int
@@ -43,8 +44,11 @@ type DetailModel struct {
 
 type pollMsg struct{ owner *DetailModel }
 
+// maxRemoteRows membatasi daftar alamat asal supaya layar tetap terbaca.
+const maxRemoteRows = 8
+
 func newDetail(env shared.Env, d Data, l sysports.Listener) *DetailModel {
-	m := &DetailModel{env: env, target: d.Target(l)}
+	m := &DetailModel{env: env, data: d, target: d.Target(l)}
 	if p := m.target.Proc; p != nil && p.PPID > 1 {
 		if pp, err := procs.Read(env.ProcRoot, p.PPID); err == nil {
 			m.parent = &pp
@@ -92,6 +96,68 @@ func (m *DetailModel) Update(msg tea.Msg) (nav.Screen, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+// ownerUnknown menjelaskan kenapa pemilik port tidak terlihat. Alasannya berbeda saat ubt
+// dijalankan sebagai root: bukan soal izin, melainkan prosesnya memang tidak ada di /proc ini.
+func (m *DetailModel) ownerUnknown(l sysports.Listener) (reason, hint string) {
+	if l.Process != "" {
+		return "Nama proses menurut ss: " + l.Process + ".", ""
+	}
+	if name, how := m.data.Container(l, nil); name != "" {
+		return "Port ini dipegang container Docker \"" + name + "\" (" + how + ").",
+			"Buka modul Docker untuk melihat container dan lognya."
+	}
+	if m.env.IsRoot {
+		return "Socket ini tidak punya proses pemilik yang terlihat di " + m.env.ProcRoot + ", padahal ubt sudah berjalan sebagai root. " +
+				"Biasanya berarti prosesnya berada di namespace lain — mis. di dalam container, atau di host bila ubt dijalankan dari dalam container — " +
+				"atau prosesnya sudah berhenti dan kernel belum menutup socketnya.",
+			"Tekan a untuk memastikan lagi dengan ss."
+	}
+	return "Proses pemilik port ini tidak terlihat oleh user " + procs.Username(m.env.UID) + " karena milik user lain.",
+		"Tekan a untuk mencari pemiliknya dengan sudo, atau jalankan sudo ubt."
+}
+
+// connectionLines merender ringkasan koneksi TCP yang sedang terbuka ke port ini.
+func (m *DetailModel) connectionLines(width int) []string {
+	t := ui.Current
+	l := m.target.Listener
+	if l.Proto != sysports.TCP {
+		return nil
+	}
+	conns := m.data.Snap.ConnectionsTo(l)
+	out := []string{ui.Section("Koneksi aktif")}
+	if len(conns) == 0 {
+		return append(out, ui.Wrap(t.Subtle.Render("Tidak ada koneksi yang sedang terbuka ke port ini."), width, " "))
+	}
+	lokal := 0
+	for _, c := range conns {
+		if c.LocalClient() {
+			lokal++
+		}
+	}
+	ringkas := fmt.Sprintf("%d koneksi terbuka", len(conns))
+	if lokal > 0 {
+		ringkas += fmt.Sprintf(" (%d dari server ini sendiri)", lokal)
+	}
+	out = append(out, ui.Wrap(t.Accent.Render(ringkas), width, " "), "")
+
+	groups := sysports.GroupByRemote(conns)
+	shown := groups
+	if len(shown) > maxRemoteRows {
+		shown = shown[:maxRemoteRows]
+	}
+	for _, g := range shown {
+		asal := g.Addr.WithZone("").String()
+		if g.Addr.IsLoopback() {
+			asal += " (server ini)"
+		}
+		out = append(out, fmt.Sprintf("   %-42s %s", asal, t.Subtle.Render(fmt.Sprintf("%d koneksi", g.Count))))
+	}
+	if len(groups) > len(shown) {
+		out = append(out, "   "+t.Muted.Render(fmt.Sprintf("… dan %d alamat lain", len(groups)-len(shown))))
+	}
+	return out
 }
 
 func (m *DetailModel) actionForm() ask.Form {
@@ -204,11 +270,11 @@ func (m *DetailModel) View(width, height int) string {
 	p := m.target.Proc
 	if p == nil {
 		lines = append(lines, ui.Section("Proses"))
-		reason := "Proses pemilik port ini tidak terlihat oleh user " + procs.Username(m.env.UID) + " karena milik user lain."
-		if l.Process != "" {
-			reason = "Nama proses menurut ss: " + l.Process + "."
+		reason, hint := m.ownerUnknown(l)
+		lines = append(lines, ui.Wrap(t.Subtle.Render(reason), width, " "))
+		if hint != "" {
+			lines = append(lines, ui.Wrap(t.Accent.Render(hint), width, " "))
 		}
-		lines = append(lines, ui.Wrap(t.Subtle.Render(reason), width, " "), ui.Wrap(t.Accent.Render("Tekan a untuk mencari pemiliknya dengan sudo, atau jalankan sudo ubt."), width, " "))
 	} else {
 		lines = append(lines, ui.Section("Proses"))
 		exe := p.Exe
@@ -241,6 +307,9 @@ func (m *DetailModel) View(width, height int) string {
 		if m.target.Shared > 1 {
 			pairs = append(pairs, ui.Pair{Key: "Berbagi port", Value: fmt.Sprintf("%d proses (PID %s)", m.target.Shared, joinInts(l.PIDs)), Hint: "umum pada nginx/apache: satu proses induk dan beberapa worker"})
 		}
+		if name, how := m.data.Container(l, p); name != "" {
+			pairs = append(pairs, ui.Pair{Key: "Container", Value: name, Hint: how})
+		}
 		switch {
 		case p.Cgroup.Container != "":
 			pairs = append(pairs, ui.Pair{Key: "Dikelola", Value: "container Docker " + shortID(p.Cgroup.Container)})
@@ -272,6 +341,9 @@ func (m *DetailModel) View(width, height int) string {
 			lines = append(lines, "   "+t.Muted.Render("$ ")+t.Code.Render(" "+c+" "))
 		}
 	}
+
+	lines = append(lines, "")
+	lines = append(lines, m.connectionLines(width)...)
 
 	if m.status != "" {
 		style := t.Warning

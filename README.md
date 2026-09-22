@@ -42,7 +42,7 @@ kamu belajar command aslinya.
 | | Penjadwalan | Cron & systemd timer dijelaskan dalam bahasa manusia, wizard jadwal baru |
 | | Paket (apt) | Update keamanan, cari & install, perbaiki paket rusak, auto-update |
 | 🌐 Jaringan | Network & konektivitas | Wizard "kenapa tidak bisa konek" dan "kenapa port tidak bisa diakses" |
-| | Ports & Proses | Port mana dipakai proses apa, hentikan dengan aman |
+| | Ports & Proses | Port mana dipakai proses apa, berapa koneksi yang sedang terbuka dan dari mana, container di balik port yang dipublikasikan Docker, hentikan dengan aman |
 | | Firewall (ufw) | Allow/deny dengan preset, hapus aturan, aktifkan tanpa memutus SSH |
 | | Web & TLS | Reverse proxy nginx, HTTPS Let's Encrypt, cek sertifikat domain mana pun |
 | 🔑 Akses | User & SSH | Tambah user, sudo, SSH key, amankan sshd |
@@ -86,7 +86,7 @@ sudo make install     # pasang ke /usr/local/bin/ubt
 ```bash
 ubt                               # menu interaktif
 ubt doctor                        # program apa yang dibutuhkan tiap modul, dan paket apt-nya
-ubt ports [--json]                # port yang listening dan prosesnya
+ubt ports [--json]                # port listening, prosesnya, dan koneksi yang sedang terbuka
 ubt history [--last N] [--json]   # command yang pernah dijalankan lewat ubt
 ubt history export --last 20 > setup-server.sh
 ubt version [--json]

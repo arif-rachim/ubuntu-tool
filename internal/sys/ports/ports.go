@@ -25,6 +25,9 @@ const (
 	UDP Proto = "udp"
 )
 
+// String membuat Proto bisa dipakai langsung di pesan.
+func (p Proto) String() string { return string(p) }
+
 // State TCP dari kolom "st" /proc/net/tcp (heksadesimal).
 const (
 	StateEstablished = 0x01
@@ -225,10 +228,74 @@ func (l Listener) Scope() Scope {
 	return ScopeSpecific
 }
 
+// Connection adalah satu koneksi TCP yang sedang terbuka (ESTABLISHED) ke sebuah port lokal.
+type Connection struct {
+	Socket
+	PIDs []int // proses yang memegang koneksi ini; kosong bila tidak terlihat
+}
+
+// Client adalah alamat lawan bicara koneksi.
+func (c Connection) Client() netip.Addr { return c.Remote.Addr() }
+
+// Local melaporkan apakah koneksi datang dari server ini sendiri.
+func (c Connection) LocalClient() bool { return c.Remote.Addr().IsLoopback() }
+
 // Snapshot adalah hasil satu kali pembacaan daftar port.
 type Snapshot struct {
 	Listeners []Listener
-	Denied    int // proses yang fd-nya tidak terbaca → sebagian pemilik mungkin tidak terlihat
+	// Established adalah seluruh koneksi TCP yang sedang terbuka, untuk dipasangkan ke listener.
+	Established []Connection
+	Denied      int // proses yang fd-nya tidak terbaca → sebagian pemilik mungkin tidak terlihat
+}
+
+// ConnectionsTo mengembalikan koneksi yang masuk ke sebuah listener: protokol sama, port lokal sama,
+// dan alamat lokalnya cocok (listener di 0.0.0.0/:: menerima semua alamat).
+//
+// Pemisahan IPv4/IPv6 dijaga supaya satu koneksi tidak terhitung dua kali saat sebuah aplikasi
+// mendengarkan di 0.0.0.0 dan [::] sekaligus — hal yang umum.
+func (s Snapshot) ConnectionsTo(l Listener) []Connection {
+	if l.Proto != TCP {
+		return nil // UDP tidak punya koneksi yang bisa dilacak dari /proc/net
+	}
+	var out []Connection
+	for _, c := range s.Established {
+		if c.Proto != l.Proto || c.IPv6 != l.IPv6 || c.Local.Port() != l.Local.Port() {
+			continue
+		}
+		if !l.Local.Addr().IsUnspecified() && c.Local.Addr() != l.Local.Addr() {
+			continue
+		}
+		out = append(out, c)
+	}
+	return out
+}
+
+// RemoteGroup adalah sekumpulan koneksi dari satu alamat.
+type RemoteGroup struct {
+	Addr  netip.Addr
+	Count int
+}
+
+// GroupByRemote merangkum koneksi per alamat asal, terbanyak dulu.
+func GroupByRemote(cs []Connection) []RemoteGroup {
+	idx := map[netip.Addr]int{}
+	var out []RemoteGroup
+	for _, c := range cs {
+		a := c.Remote.Addr()
+		if i, ok := idx[a]; ok {
+			out[i].Count++
+			continue
+		}
+		idx[a] = len(out)
+		out = append(out, RemoteGroup{Addr: a, Count: 1})
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Count != out[j].Count {
+			return out[i].Count > out[j].Count
+		}
+		return out[i].Addr.Less(out[j].Addr)
+	})
+	return out
 }
 
 // ReadListeners membaca semua port yang listening dari /proc dan memetakan pemiliknya.
@@ -244,15 +311,17 @@ func ReadListeners(procRoot string) (Snapshot, error) {
 	snap := Snapshot{Denied: owners.Denied}
 	seen := map[string]bool{}
 	for _, s := range socks {
-		if !s.Listening() {
-			continue
+		switch {
+		case s.Listening():
+			key := fmt.Sprintf("%s|%s|%d", s.Proto, s.Local, s.Inode)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			snap.Listeners = append(snap.Listeners, Listener{Socket: s, PIDs: owners.PIDs[s.Inode]})
+		case s.Proto == TCP && s.State == StateEstablished:
+			snap.Established = append(snap.Established, Connection{Socket: s, PIDs: owners.PIDs[s.Inode]})
 		}
-		key := fmt.Sprintf("%s|%s|%d", s.Proto, s.Local, s.Inode)
-		if seen[key] {
-			continue
-		}
-		seen[key] = true
-		snap.Listeners = append(snap.Listeners, Listener{Socket: s, PIDs: owners.PIDs[s.Inode]})
 	}
 	SortListeners(snap.Listeners)
 	return snap, nil
