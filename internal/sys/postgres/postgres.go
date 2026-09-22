@@ -11,7 +11,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -46,6 +48,16 @@ type Cluster struct {
 
 // Online melaporkan apakah cluster sedang berjalan.
 func (c Cluster) Online() bool { return c.Status == "online" }
+
+// Major adalah nomor versi mayor cluster (16, 17, 18, …); 0 bila tidak terbaca.
+func (c Cluster) Major() int {
+	major, _, _ := strings.Cut(c.Version, ".")
+	n, err := strconv.Atoi(major)
+	if err != nil {
+		return 0
+	}
+	return n
+}
 
 // ID adalah penanda singkat cluster: "17/main".
 func (c Cluster) ID() string { return c.Version + "/" + c.Name }
@@ -245,7 +257,15 @@ func (c Client) Read(ctx context.Context, r run.Runner, wanted string) Status {
 		st.Avail = NoCluster
 		return st
 	}
+	// Tanpa pilihan user, ambil cluster pertama yang berjalan — di server yang punya beberapa
+	// versi (mis. 16 sisa bawaan Ubuntu + 18 dari PGDG), yang lama sering sengaja dimatikan.
 	st.Cluster = st.Clusters[0]
+	for _, cl := range st.Clusters {
+		if cl.Online() {
+			st.Cluster = cl
+			break
+		}
+	}
 	for _, cl := range st.Clusters {
 		if cl.ID() == wanted {
 			st.Cluster = cl
@@ -268,4 +288,21 @@ func (c Client) Read(ctx context.Context, r run.Runner, wanted string) Status {
 	}
 	st.Avail, st.Summary, st.HasStatements = Ready, sum, sum.Statements
 	return st
+}
+
+// InstalledVersions mencari versi PostgreSQL yang paketnya sudah terpasang, dari direktori binary
+// per versi yang dipakai Debian/Ubuntu (/usr/lib/postgresql/VERSI/bin). Terbaru lebih dulu.
+func InstalledVersions() []string {
+	entries, err := os.ReadDir("/usr/lib/postgresql")
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, e := range entries {
+		if e.IsDir() {
+			out = append(out, e.Name())
+		}
+	}
+	sort.Sort(sort.Reverse(sort.StringSlice(out)))
+	return out
 }

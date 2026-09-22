@@ -241,9 +241,11 @@ type Statement struct {
 	Query   string  `json:"query"`
 }
 
+// Catatan: total_exec_time & mean_exec_time bertipe double precision, sedangkan round() dengan
+// jumlah desimal hanya ada untuk numeric — karena itu di-cast dulu.
 const statementSQL = `SELECT s.calls::bigint AS calls,
-  round(s.total_exec_time)::float8 AS total_ms,
-  round(s.mean_exec_time, 1)::float8 AS mean_ms,
+  round(s.total_exec_time::numeric)::float8 AS total_ms,
+  round(s.mean_exec_time::numeric, 1)::float8 AS mean_ms,
   s.rows::bigint AS rows,
   left(regexp_replace(s.query, '\s+', ' ', 'g'), 200) AS query
 FROM pg_stat_statements s
@@ -286,7 +288,8 @@ WHERE name = ANY (ARRAY['listen_addresses','port','max_connections','shared_buff
   'maintenance_work_mem','effective_cache_size','wal_buffers','min_wal_size','max_wal_size',
   'checkpoint_completion_target','random_page_cost','effective_io_concurrency','default_statistics_target',
   'max_worker_processes','max_parallel_workers','max_parallel_workers_per_gather','ssl',
-  'password_encryption','log_min_duration_statement','autovacuum','shared_preload_libraries','data_directory'])
+  'password_encryption','log_min_duration_statement','autovacuum','shared_preload_libraries','data_directory',
+  'io_method','io_workers','maintenance_io_concurrency','data_checksums','autovacuum_worker_slots'])
 ORDER BY name`
 
 // ReadSettings membaca parameter penting beserta asal nilainya.
@@ -303,22 +306,30 @@ type HBARule struct {
 	Database []string `json:"database"`
 	User     []string `json:"user_name"`
 	Address  string   `json:"address"`
+	Netmask  string   `json:"netmask"`
 	Method   string   `json:"auth_method"`
 	Error    string   `json:"error"`
 }
 
+// Source menjelaskan asal koneksi yang dicakup aturan ini.
+func (h HBARule) Source() string {
+	switch {
+	case h.Type == "local":
+		return "socket lokal (program di server ini)"
+	case h.Address == "":
+		return "jaringan"
+	case h.Netmask != "":
+		return "alamat " + h.Address + " dengan netmask " + h.Netmask
+	}
+	return "alamat " + h.Address
+}
+
 // Describe menjelaskan satu aturan dalam bahasa manusia.
 func (h HBARule) Describe() string {
-	from := "socket lokal (program di server ini)"
-	switch {
-	case h.Error != "":
+	if h.Error != "" {
 		return "BARIS RUSAK: " + h.Error
-	case h.Type != "local" && h.Address != "":
-		from = "alamat " + h.Address
-	case h.Type != "local":
-		from = "jaringan"
 	}
-	return "user " + join(h.User) + " ke database " + join(h.Database) + " dari " + from + ", autentikasi " + MethodMeaning(h.Method)
+	return "user " + join(h.User) + " ke database " + join(h.Database) + " dari " + h.Source() + ", autentikasi " + MethodMeaning(h.Method)
 }
 
 func join(xs []string) string {
@@ -356,7 +367,7 @@ func MethodMeaning(m string) string {
 
 const hbaSQL = `SELECT line_number::int AS line_number, coalesce(type, '') AS type,
   coalesce(database, '{}') AS database, coalesce(user_name, '{}') AS user_name,
-  coalesce(address, '') AS address, coalesce(auth_method, '') AS auth_method,
+  coalesce(address, '') AS address, coalesce(netmask, '') AS netmask, coalesce(auth_method, '') AS auth_method,
   coalesce(error, '') AS error
 FROM pg_hba_file_rules ORDER BY line_number`
 

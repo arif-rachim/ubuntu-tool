@@ -53,7 +53,7 @@ func TestDashboardKondisiBelumSiap(t *testing.T) {
 		st   syspg.Status
 		want []string
 	}{
-		{syspg.Status{Avail: syspg.NotInstalled}, []string{"belum terpasang", "postgresql-contrib"}},
+		{syspg.Status{Avail: syspg.NotInstalled}, []string{"belum terpasang", "PostgreSQL 18", "repository resmi"}},
 		{syspg.Status{Avail: syspg.NoCluster}, []string{"belum ada cluster", "pg_createcluster"}},
 		{syspg.Status{Avail: syspg.Down, Clusters: []syspg.Cluster{{Version: "17", Name: "main", Port: 5432, Status: "down", LogFile: "/var/log/postgresql/x.log"}}},
 			[]string{"tidak berjalan", "/var/log/postgresql/x.log"}},
@@ -74,10 +74,25 @@ func TestDashboardKondisiBelumSiap(t *testing.T) {
 func TestInstallDanSudoProbe(t *testing.T) {
 	m := newModel(shared.Env{Now: time.Now}, syspg.Client{})
 	m.Update(statusMsg{owner: m, status: syspg.Status{Avail: syspg.NotInstalled}})
-	_, cmd := m.Update(testutil.Key("i"))
+	if _, cmd := m.Update(testutil.Key("i")); len(testutil.Run(cmd)) == 0 {
+		t.Fatal("tombol i tidak membuka wizard versi")
+	}
+	// Versi bawaan Ubuntu: cukup satu perintah apt, tanpa repository tambahan.
+	_, cmd := m.Update(nav.ResumedMsg{Result: ask.Result{ID: "pg-install", Answers: ask.Answers{"versi": {Values: []string{"ubuntu"}}}}})
 	confirm := ansi.Strip(testutil.Run(cmd)[0].(nav.PushMsg).Screen.View(120, 40))
 	if !strings.Contains(confirm, "apt-get install -y postgresql postgresql-contrib") {
-		t.Errorf("install:\n%s", confirm)
+		t.Errorf("install bawaan:\n%s", confirm)
+	}
+	if strings.Contains(confirm, "apt.postgresql.org") {
+		t.Errorf("versi bawaan Ubuntu tidak boleh menambah repository:\n%s", confirm)
+	}
+	// PostgreSQL 18 belum ada di repository Ubuntu 24.04: repository resmi ditambahkan dulu.
+	_, cmd = m.Update(nav.ResumedMsg{Result: ask.Result{ID: "pg-install", Answers: ask.Answers{"versi": {Values: []string{"18"}}}}})
+	confirm = ansi.Strip(testutil.Run(cmd)[0].(nav.PushMsg).Screen.View(140, 60))
+	for _, want := range []string{"postgresql-common", "apt.postgresql.org.sh", "apt-get install -y postgresql-18 postgresql-contrib-18", "BAHAYA"} {
+		if !strings.Contains(confirm, want) {
+			t.Errorf("install PGDG tidak memuat %q:\n%s", want, confirm)
+		}
 	}
 
 	m = newModel(shared.Env{Now: time.Now}, syspg.Client{LsBin: "/usr/bin/pg_lsclusters"})
@@ -152,7 +167,8 @@ func TestAksesJaringan(t *testing.T) {
 	}
 	_, cmd = m.Update(nav.ResumedMsg{Result: ask.Result{ID: "pg-remote", Answers: ask.Answers{
 		"mode": {Values: []string{syspg.ListenSpecific}}, "cidr": {Text: "10.8.0.4/32"},
-		"db": {Values: []string{"toko"}}, "role": {Values: []string{"app"}}}}})
+		"db": {Values: []string{"toko"}}, "role": {Values: []string{"app"}},
+		"firewall": {Values: []string{FirewallNo}}}}})
 	confirm := ansi.Strip(testutil.Run(cmd)[0].(nav.PushMsg).Screen.View(140, 60))
 	for _, want := range []string{"pg_hba.conf", "10.8.0.4/32", "scram-sha-256", "listen_addresses", "systemctl restart postgresql@17-main.service", "BAHAYA"} {
 		if !strings.Contains(confirm, want) {
@@ -296,5 +312,100 @@ func TestQueryValidatorMemberiPeringatan(t *testing.T) {
 	}
 	if err := validQuery("   "); err == nil {
 		t.Error("query kosong harus ditolak")
+	}
+}
+
+// Aturan firewall harus dipasang SEBELUM port dibuka, supaya tidak ada jeda saat PostgreSQL
+// mendengarkan jaringan tetapi belum dipagari ufw.
+func TestAksesJaringanDenganUfw(t *testing.T) {
+	m := dashboard(t)
+	_, cmd := m.Update(nav.ResumedMsg{Result: ask.Result{ID: "pg-remote", Answers: ask.Answers{
+		"mode": {Values: []string{syspg.ListenSpecific}}, "cidr": {Text: "10.8.0.4/32"},
+		"db": {Values: []string{"toko"}}, "role": {Values: []string{"app"}},
+		"firewall": {Values: []string{FirewallFrom}}}}})
+	confirm := ansi.Strip(testutil.Run(cmd)[0].(nav.PushMsg).Screen.View(160, 200))
+	if !strings.Contains(confirm, "ufw allow from 10.8.0.4/32 to any port 5432 proto tcp") {
+		t.Errorf("aturan ufw tidak ada:\n%s", confirm)
+	}
+	ufw := strings.Index(confirm, "ufw allow")
+	listen := strings.Index(confirm, "listen_addresses")
+	if ufw < 0 || listen < 0 || ufw > listen {
+		t.Errorf("urutan salah: ufw di %d, listen_addresses di %d\n%s", ufw, listen, confirm)
+	}
+
+	// Pilihan "dari mana saja" tidak membatasi sumber.
+	_, cmd = m.Update(nav.ResumedMsg{Result: ask.Result{ID: "pg-remote", Answers: ask.Answers{
+		"mode": {Values: []string{syspg.ListenAll}}, "cidr": {Text: "0.0.0.0/0"},
+		"db": {Values: []string{"toko"}}, "role": {Values: []string{"app"}},
+		"firewall": {Values: []string{FirewallAny}}}}})
+	confirm = ansi.Strip(testutil.Run(cmd)[0].(nav.PushMsg).Screen.View(160, 200))
+	if !strings.Contains(confirm, "ufw allow 5432/tcp") {
+		t.Errorf("aturan ufw terbuka:\n%s", confirm)
+	}
+}
+
+func TestWizardFirewallMenyesuaikanKondisiUfw(t *testing.T) {
+	f := RemoteAccessForm(nil, nil, FirewallInfo{}, 5432)
+	var q ask.Question
+	for _, x := range f.Questions {
+		if x.ID == "firewall" {
+			q = x
+		}
+	}
+	if q.ID == "" {
+		t.Fatal("pertanyaan firewall tidak ada")
+	}
+	if q.Options[0].Disabled == "" || !strings.Contains(q.Options[0].Disabled, "belum terpasang") {
+		t.Errorf("tanpa ufw, opsi harus dinonaktifkan: %+v", q.Options[0])
+	}
+	if !q.Options[2].Recommended {
+		t.Error("tanpa ufw, pilihan \"atur sendiri\" yang disarankan")
+	}
+	f = RemoteAccessForm(nil, nil, FirewallInfo{Installed: true}, 5432)
+	for _, x := range f.Questions {
+		if x.ID == "firewall" {
+			q = x
+		}
+	}
+	if !strings.Contains(q.Help, "BELUM AKTIF") {
+		t.Errorf("ufw tidak aktif harus disebut di bantuan: %q", q.Help)
+	}
+}
+
+func TestPilihClusterSaatAdaBeberapaVersi(t *testing.T) {
+	m := newModel(shared.Env{Now: time.Now}, syspg.Client{LsBin: "/usr/bin/pg_lsclusters"})
+	st := ready()
+	st.Clusters = []syspg.Cluster{
+		{Version: "16", Name: "main", Port: 5432, Status: "down"},
+		{Version: "18", Name: "main", Port: 5433, Status: "online"},
+	}
+	st.Cluster = st.Clusters[1]
+	m.Update(statusMsg{owner: m, status: st})
+	view := ansi.Strip(m.View(160, 30))
+	if !strings.Contains(view, "cluster 18/main") || !strings.Contains(view, "cluster lain: 16/main (down)") {
+		t.Errorf("cluster lain tidak disebut:\n%s", view)
+	}
+	_, cmd := m.Update(testutil.Key("c"))
+	msgs := testutil.Run(cmd)
+	if len(msgs) == 0 {
+		t.Fatal("tombol c tidak membuka pemilih cluster")
+	}
+	m.Update(nav.ResumedMsg{Result: ask.Result{ID: "pg-pick", Answers: ask.Answers{"cluster": {Values: []string{"16/main"}}}}})
+	if m.wanted != "16/main" {
+		t.Errorf("cluster pilihan = %q", m.wanted)
+	}
+}
+
+func TestBuatClusterSaatBelumAda(t *testing.T) {
+	m := newModel(shared.Env{Now: time.Now}, syspg.Client{LsBin: "/usr/bin/pg_lsclusters"})
+	m.Update(statusMsg{owner: m, status: syspg.Status{Avail: syspg.NoCluster}})
+	if _, cmd := m.Update(testutil.Key("c")); len(testutil.Run(cmd)) == 0 {
+		t.Fatal("tombol c tidak membuka wizard cluster")
+	}
+	_, cmd := m.Update(nav.ResumedMsg{Result: ask.Result{ID: "pg-cluster", Answers: ask.Answers{
+		"versi": {Values: []string{"18"}}, "nama": {Text: "main"}}}})
+	confirm := ansi.Strip(testutil.Run(cmd)[0].(nav.PushMsg).Screen.View(120, 40))
+	if !strings.Contains(confirm, "pg_createcluster 18 main --start") {
+		t.Errorf("buat cluster:\n%s", confirm)
 	}
 }

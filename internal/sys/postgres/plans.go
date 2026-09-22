@@ -45,17 +45,74 @@ func cmd(title string, lvl risk.Level, effect string, explain []run.Line, c run.
 	return c
 }
 
+// PGDGScript adalah skrip resmi penambah repository apt.postgresql.org yang ikut dalam paket
+// postgresql-common Ubuntu. Memakainya jauh lebih aman daripada memasang kunci GPG & sources.list manual.
+const PGDGScript = "/usr/share/postgresql-common/pgdg/apt.postgresql.org.sh"
+
+// UbuntuMajor adalah versi PostgreSQL yang tersedia di repository bawaan Ubuntu 24.04.
+const UbuntuMajor = 16
+
+// ValidMajor memeriksa nomor versi mayor PostgreSQL.
+func ValidMajor(s string) error {
+	n, err := strconv.Atoi(strings.TrimSpace(s))
+	if err != nil || n < 12 || n > 30 {
+		return errors.New("tulis nomor versi mayor saja, mis. 18")
+	}
+	return nil
+}
+
 // InstallPlan memasang PostgreSQL dari repository Ubuntu.
 func InstallPlan() run.Plan {
-	return run.Plan{Title: "Install PostgreSQL", Steps: []run.Command{
+	return run.Plan{Title: "Install PostgreSQL (versi bawaan Ubuntu)", Steps: []run.Command{
 		{Title: "Install server & alat bantu PostgreSQL", Argv: []string{"apt-get", "install", "-y", "postgresql", "postgresql-contrib"}, NeedsRoot: true, Risk: risk.Caution,
 			Explain: []run.Line{
-				{Token: "postgresql", Meaning: "server database versi bawaan Ubuntu ini, beserta perkakas psql/pg_dump"},
+				{Token: "postgresql", Meaning: "server database versi bawaan Ubuntu ini (24.04 → PostgreSQL 16), beserta perkakas psql/pg_dump"},
 				{Token: "postgresql-contrib", Meaning: "ekstensi resmi tambahan, mis. pg_stat_statements untuk melihat query paling berat"},
 			},
 			Effect: "Satu cluster bernama \"main\" langsung dibuat dan berjalan di port 5432, hanya menerima koneksi dari server ini. " +
 				"User sistem `postgres` menjadi pemiliknya."},
 	}}
+}
+
+// InstallPGDGPlan memasang versi PostgreSQL tertentu dari repository resmi PostgreSQL (PGDG),
+// yang dibutuhkan untuk versi yang lebih baru daripada bawaan Ubuntu (mis. 18 di Ubuntu 24.04).
+func InstallPGDGPlan(major string) run.Plan {
+	pkg := "postgresql-" + major
+	return run.Plan{Title: "Install PostgreSQL " + major + " dari repository resmi PostgreSQL", Steps: []run.Command{
+		{Title: "Pastikan postgresql-common terpasang", Argv: []string{"apt-get", "install", "-y", "postgresql-common"}, NeedsRoot: true, Risk: risk.Caution,
+			Explain: []run.Line{
+				{Token: "postgresql-common", Meaning: "perkakas pengelola cluster Ubuntu (pg_lsclusters, pg_createcluster) — sekaligus membawa skrip penambah repository resmi"},
+			},
+			Effect: "Belum memasang server database apa pun."},
+		{Title: "Tambahkan repository resmi PostgreSQL (PGDG)", Argv: []string{PGDGScript, "-y"}, NeedsRoot: true, Risk: risk.Dangerous,
+			Explain: []run.Line{
+				{Token: PGDGScript, Meaning: "skrip resmi yang ikut dalam paket postgresql-common Ubuntu; memasang kunci GPG dan berkas sources.list PGDG"},
+				{Token: "-y", Meaning: "tanpa bertanya lagi (persetujuan sudah diberikan di layar ini)"},
+			},
+			Effect: "Setelah ini, apt juga mengambil paket dari apt.postgresql.org — repository resmi PostgreSQL Global Development Group. " +
+				"Paket dari repository ini akan ikut terpasang di setiap `apt upgrade`.",
+			Safer: "Bila kamu tidak membutuhkan versi terbaru, versi bawaan Ubuntu sudah didukung keamanan sampai akhir masa dukungan Ubuntu."},
+		{Title: "Install " + pkg, Argv: []string{"apt-get", "install", "-y", pkg, "postgresql-contrib-" + major}, NeedsRoot: true, Risk: risk.Caution,
+			Explain: []run.Line{
+				{Token: pkg, Meaning: "server PostgreSQL versi " + major},
+				{Token: "postgresql-contrib-" + major, Meaning: "ekstensi resmi tambahan untuk versi yang sama"},
+			},
+			Effect: "Cluster \"main\" versi " + major + " dibuat otomatis. Bila di server ini sudah ada cluster lain, " +
+				"cluster baru memakai port berikutnya (5433, 5434, …) — periksa daftar cluster setelah selesai."},
+	}}
+}
+
+// CreateClusterPlan membuat cluster baru untuk versi yang sudah terpasang.
+func CreateClusterPlan(version, name string) run.Plan {
+	return run.Single(run.Command{
+		Title: "Buat cluster " + version + "/" + name, Argv: []string{"pg_createcluster", version, name, "--start"}, NeedsRoot: true, Risk: risk.Caution,
+		Explain: []run.Line{
+			{Token: "pg_createcluster", Meaning: "buat direktori data + konfigurasi cluster baru ala Debian/Ubuntu"},
+			{Token: version + " " + name, Meaning: "versi PostgreSQL dan nama cluster (bawaan: main)"},
+			{Token: "--start", Meaning: "langsung jalankan setelah dibuat"},
+		},
+		Effect: "Cluster memakai port bebas pertama (5432 bila belum ada cluster lain) dan hanya menerima koneksi dari server ini.",
+	})
 }
 
 // ServiceUnit mengembalikan unit systemd cluster (dipakai modul Service).

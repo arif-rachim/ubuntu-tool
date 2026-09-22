@@ -1,6 +1,7 @@
 package postgres
 
 import (
+	"strconv"
 	"strings"
 
 	"github.com/arif-rachim/ubuntu-tool/internal/risk"
@@ -169,9 +170,31 @@ func DatabasePickForm(id, title, prompt string, dbs []string, withLevel bool) as
 	return ask.Form{ID: id, Title: title, Questions: qs}
 }
 
+// Nilai jawaban pertanyaan firewall di wizard akses jaringan.
+const (
+	FirewallFrom = "from" // izinkan hanya dari alamat yang sama dengan aturan pg_hba
+	FirewallAny  = "any"  // izinkan dari mana saja
+	FirewallNo   = "no"   // jangan sentuh firewall
+)
+
+// FirewallInfo adalah kondisi ufw yang dipakai wizard akses jaringan.
+type FirewallInfo struct {
+	Installed bool
+	Active    bool
+}
+
 // RemoteAccessForm adalah wizard membuka akses PostgreSQL dari jaringan.
-func RemoteAccessForm(dbs, roles []string) ask.Form {
+func RemoteAccessForm(dbs, roles []string, fw FirewallInfo, port int) ask.Form {
 	needsCIDR := func(a ask.Answers) bool { return a["mode"].Value() != syspg.ListenLocal }
+	noUfw := ""
+	if !fw.Installed {
+		noUfw = "ufw belum terpasang di server ini — pasang lewat modul Firewall"
+	}
+	fwHelp := "Docker dan PostgreSQL sama-sama tidak mengurus firewall sendiri. Tanpa aturan ufw, port " +
+		strconv.Itoa(port) + " terbuka untuk siapa pun yang bisa mencapai server ini."
+	if fw.Installed && !fw.Active {
+		fwHelp += " Catatan: ufw terpasang tetapi BELUM AKTIF, jadi aturannya tersimpan dan baru berlaku setelah ufw dinyalakan (modul Firewall)."
+	}
 	return ask.Form{ID: "pg-remote", Title: "Akses dari jaringan", Questions: []ask.Question{
 		{ID: "mode", Header: "Dari mana", Kind: ask.Single, Prompt: "Siapa yang perlu menyambung ke database ini?",
 			Help: "Bawaan Ubuntu: PostgreSQL hanya menerima koneksi dari server ini (listen_addresses = localhost). " +
@@ -191,5 +214,60 @@ func RemoteAccessForm(dbs, roles []string) ask.Form {
 		{ID: "role", Header: "Role", Kind: ask.Single, Other: true, Prompt: "Role mana yang boleh dipakai dari sana?",
 			Options: append([]ask.Option{{Value: "all", Label: "Semua role", Description: "Termasuk superuser postgres — tidak disarankan dari jaringan.", Risk: risk.Dangerous}}, options(roles, nil)...),
 			Help:    "Pilih role aplikasi, bukan postgres. Autentikasinya scram-sha-256, jadi role tersebut harus sudah punya password."},
+		{ID: "firewall", Header: "Firewall", Kind: ask.Single, When: needsCIDR, Prompt: "Buka port " + strconv.Itoa(port) + " di firewall (ufw) juga?",
+			Help: fwHelp, Options: []ask.Option{
+				{Value: FirewallFrom, Label: "Ya, hanya dari alamat yang sama", Description: "ufw allow from ALAMAT to any port " + strconv.Itoa(port) + " proto tcp — sejalan dengan aturan pg_hba di atas.", Recommended: true, Disabled: noUfw},
+				{Value: FirewallAny, Label: "Ya, dari mana saja", Description: "Port terbuka untuk semua alamat yang bisa mencapai server ini. Hanya untuk jaringan yang memang tertutup.", Risk: risk.Dangerous, Disabled: noUfw},
+				{Value: FirewallNo, Label: "Tidak, saya atur sendiri", Description: "ubt tidak menyentuh firewall. Pakai ini bila portnya sudah dibuka, atau firewallnya di luar server (security group cloud).", Recommended: !fw.Installed},
+			}},
+	}}
+}
+
+// InstallForm menanyakan versi PostgreSQL yang dipasang.
+func InstallForm() ask.Form {
+	return ask.Form{ID: "pg-install", Title: "Install PostgreSQL", Questions: []ask.Question{
+		{ID: "versi", Header: "Versi", Kind: ask.Single, Other: true, Validate: syspg.ValidMajor,
+			Prompt: "Versi PostgreSQL mana yang dipasang?",
+			Help: "Repository Ubuntu 24.04 hanya menyediakan PostgreSQL " + strconv.Itoa(syspg.UbuntuMajor) + ". " +
+				"Versi yang lebih baru diambil dari apt.postgresql.org (PGDG), repository resmi tim PostgreSQL — " +
+				"ubt menambahkannya memakai skrip resmi yang sudah ikut dalam paket postgresql-common Ubuntu, bukan dengan memasang kunci GPG manual. " +
+				"Pilih \"Lainnya…\" untuk menulis nomor versi lain.",
+			Options: []ask.Option{
+				{Value: "ubuntu", Label: "Bawaan Ubuntu (PostgreSQL " + strconv.Itoa(syspg.UbuntuMajor) + ")",
+					Description: "Paling sederhana: ikut dukungan keamanan Ubuntu sampai akhir masa dukungan rilis ini. Tanpa repository tambahan.", Recommended: true},
+				{Value: "18", Label: "PostgreSQL 18 (PGDG)",
+					Description: "Versi stabil terbaru: I/O asinkron, statistik per-backend, skip scan pada index. Menambahkan repository apt.postgresql.org.", Risk: risk.Caution},
+				{Value: "17", Label: "PostgreSQL 17 (PGDG)",
+					Description: "Satu versi di bawah yang terbaru. Menambahkan repository apt.postgresql.org.", Risk: risk.Caution},
+			}},
+	}}
+}
+
+// ClusterForm menanyakan cluster baru yang akan dibuat.
+func ClusterForm(versions []string) ask.Form {
+	return ask.Form{ID: "pg-cluster", Title: "Buat cluster", Questions: []ask.Question{
+		{ID: "versi", Header: "Versi", Kind: ask.Single, Other: true, Options: options(versions, func(v string) string {
+			return "paket PostgreSQL " + v + " terpasang di server ini"
+		}), Prompt: "Cluster untuk versi PostgreSQL mana?", Validate: syspg.ValidMajor,
+			Help: "Satu server bisa menjalankan beberapa versi berdampingan; masing-masing punya port dan direktori data sendiri."},
+		{ID: "nama", Header: "Nama", Kind: ask.Text, Default: []string{"main"}, Validate: syspg.ValidIdent,
+			Prompt: "Nama cluster?",
+			Help:   "Bawaan Debian/Ubuntu adalah \"main\". Nama lain berguna bila kamu ingin beberapa cluster pada versi yang sama, mis. untuk uji coba."},
+	}}
+}
+
+// ClusterPickForm menanyakan cluster mana yang ditampilkan layar PostgreSQL.
+func ClusterPickForm(clusters []syspg.Cluster) ask.Form {
+	opts := make([]ask.Option, 0, len(clusters))
+	for _, c := range clusters {
+		desc := "port " + strconv.Itoa(c.Port) + " · " + c.Status
+		if !c.Online() {
+			desc += " — jalankan dulu untuk melihat isinya"
+		}
+		opts = append(opts, ask.Option{Value: c.ID(), Label: "PostgreSQL " + c.ID(), Description: desc, Recommended: c.Online()})
+	}
+	return ask.Form{ID: "pg-pick", Title: "Pilih cluster", SkipReview: true, Questions: []ask.Question{
+		{ID: "cluster", Header: "Cluster", Kind: ask.Single, Options: opts, Prompt: "Cluster mana yang dikelola?",
+			Help: "Server ini menjalankan lebih dari satu cluster PostgreSQL. Semua aksi di layar berikutnya berlaku untuk cluster yang kamu pilih di sini."},
 	}}
 }

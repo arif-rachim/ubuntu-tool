@@ -159,7 +159,9 @@ var riskRules = []rule{
 	}, risk.Dangerous},
 	{"apt purge menghapus konfigurasi", func(a []string) bool { return prog(a, "apt-get") && has(a, "purge") }, risk.Dangerous},
 	{"apt remove", func(a []string) bool { return prog(a, "apt-get") && has(a, "remove") }, risk.Caution},
-	{"PPA bisa memasang apa pun lewat update", func(a []string) bool { return prog(a, "add-apt-repository") }, risk.Dangerous},
+	{"PPA bisa memasang apa pun lewat update", func(a []string) bool {
+		return prog(a, "add-apt-repository") || strings.HasSuffix(filepath.Base(effective(a)[0]), "apt.postgresql.org.sh")
+	}, risk.Dangerous},
 	{"rm menghapus file", func(a []string) bool { return prog(a, "rm") }, risk.Caution},
 	{"docker rm -f menghentikan paksa lalu menghapus", func(a []string) bool { return prog(a, "docker") && has(a, "rm", "-f") }, risk.Dangerous},
 	{"prune --volumes menghapus data", func(a []string) bool { return prog(a, "docker") && has(a, "--volumes") }, risk.Dangerous},

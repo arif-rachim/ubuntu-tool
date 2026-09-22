@@ -860,6 +860,22 @@ peringatan merah "jangan tutup sesi ini".
     install & kesehatan cluster, database/role/hak akses, cadangan & pemulihan + jadwal, akses dari
     jaringan (pg_hba + listen_addresses), monitor koneksi/lock/query lambat/ukuran tabel, penyetelan parameter.
 
+20. **PostgreSQL 18 & pagar firewall** *(selesai 2026-09-22, diverifikasi terhadap PostgreSQL 18.6 dari PGDG
+    yang dipasang berdampingan dengan 16 bawaan Ubuntu; wizard akses jaringan sekarang sekalian menambah
+    aturan ufw, disisipkan SETELAH pg_hba dan SEBELUM listen_addresses dibuka sehingga tidak pernah ada
+    saat port terbuka tanpa kedua pagar — bila ufw belum terpasang, opsinya dinonaktifkan dengan alasannya,
+    dan bila ufw belum aktif, bantuan menyebutkan aturannya baru berlaku setelah dinyalakan; install
+    menanyakan versi lebih dulu: bawaan Ubuntu (16) atau versi PGDG (18/17/lainnya) yang repositorinya
+    ditambahkan memakai skrip resmi `/usr/share/postgresql-common/pgdg/apt.postgresql.org.sh` yang sudah
+    ikut dalam paket postgresql-common Ubuntu — bukan kunci GPG & sources.list buatan sendiri, dan
+    langkahnya ditandai BAHAYA seperti add-apt-repository; server dengan beberapa cluster memilih cluster
+    yang berjalan secara otomatis dan bisa dipindah (tombol c), kondisi "belum ada cluster" bisa dijawab
+    `pg_createcluster`; kalkulator penyetelan jadi sadar versi: sejak 18 effective_io_concurrency bawaannya
+    16 (bukan 1) karena I/O asinkron, jadi angka lama 200 tidak lagi disarankan, dan io_workers ikut
+    diusulkan; pembacaan `round(double precision, int)` di pg_stat_statements diperbaiki jadi cast numeric —
+    bug ini baru ketahuan saat ekstensinya benar-benar dipasang, dan berlaku untuk semua versi)* —
+    dukungan PostgreSQL 18, pemilihan versi & cluster, dan integrasi ufw di wizard akses jaringan.
+
 Urutan sengaja menaruh modul yang **mayoritas read-only** (Resource, Disk, Log) sebelum modul yang
 berisiko mengunci user dari server (User & SSH, Firewall), supaya lapisan eksekusi, Plan, dan Stream
 sudah teruji di kasus yang aman.

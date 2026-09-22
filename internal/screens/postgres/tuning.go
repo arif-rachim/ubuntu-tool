@@ -46,7 +46,8 @@ type tuningMsg struct {
 // NewTuning membuka layar parameter & penyetelan server.
 func NewTuning(env shared.Env, c syspg.Client, cl syspg.Cluster) *tuningModel {
 	return &tuningModel{env: env, client: c, cluster: cl,
-		server: syspg.Server{RAMBytes: totalRAM(env.ProcRoot), CPUs: runtime.NumCPU(), SSD: true, Workload: syspg.WorkloadWeb}}
+		server: syspg.Server{RAMBytes: totalRAM(env.ProcRoot), CPUs: runtime.NumCPU(), SSD: true,
+			Workload: syspg.WorkloadWeb, Major: cl.Major()}}
 }
 
 // totalRAM membaca total RAM server dari /proc/meminfo.
@@ -191,7 +192,7 @@ func (m *tuningModel) View(width, height int) string {
 	add := func(s string) { lines = append(lines, ui.Wrap(s, width, " ")) }
 	ramGB := float64(m.server.RAMBytes) / float64(1<<30)
 	add("")
-	add(" " + t.Title.Render("Mesin ini") + "  " + t.Subtle.Render(fmt.Sprintf("RAM %.1f GB · %d inti CPU · cluster %s", ramGB, m.server.CPUs, m.cluster.ID())))
+	add(" " + t.Title.Render("Mesin ini") + "  " + t.Subtle.Render(fmt.Sprintf("RAM %.1f GB · %d inti CPU · PostgreSQL %s", ramGB, m.server.CPUs, m.cluster.ID())))
 	if m.err != "" {
 		add(t.Danger.Render(" ✗ " + m.err))
 	}

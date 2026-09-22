@@ -64,8 +64,10 @@ func HBALine(db, user, cidr, method string) string {
 }
 
 // RemoteAccessPlan membuka akses dari jaringan: listen_addresses + satu aturan pg_hba + restart.
-// Urutannya sengaja: aturan siapa yang boleh masuk ditulis DULU, baru port dibuka.
-func RemoteAccessPlan(cl Cluster, mode, db, user, cidr string) run.Plan {
+// Urutannya sengaja berlapis: aturan siapa yang boleh login ditulis DULU, lalu aturan firewall
+// (beforeOpen, boleh kosong) yang menentukan siapa boleh mencapai portnya, baru portnya dibuka.
+// Dengan begitu tidak pernah ada saat PostgreSQL mendengarkan jaringan tanpa kedua pagar terpasang.
+func RemoteAccessPlan(cl Cluster, mode, db, user, cidr string, beforeOpen []run.Command) run.Plan {
 	listenPath := cl.DropIn(DropInListen)
 	line := HBALine(db, user, cidr, "scram-sha-256")
 
@@ -87,6 +89,7 @@ func RemoteAccessPlan(cl Cluster, mode, db, user, cidr string) run.Plan {
 			Safer:  "Batasi alamat sesempit mungkin (mis. /32 untuk satu server aplikasi), bukan 0.0.0.0/0.",
 		},
 	}
+	steps = append(steps, beforeOpen...)
 	if mode != ListenLocal {
 		steps = append(steps, run.Command{
 			Title: "Buka listen_addresses", Argv: []string{"install", "-D", "-m", "0644", "-o", SuperUser, "-g", SuperUser, "/dev/stdin", listenPath}, NeedsRoot: true, Risk: risk.Dangerous,

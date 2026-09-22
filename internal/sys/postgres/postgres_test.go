@@ -187,7 +187,7 @@ func TestCreateRolePasswordInteraktif(t *testing.T) {
 
 func TestRemoteAccessPlan(t *testing.T) {
 	cl := Cluster{Version: "17", Name: "main", Port: 5432}
-	p := RemoteAccessPlan(cl, ListenSpecific, "toko", "app", "10.8.0.4/32")
+	p := RemoteAccessPlan(cl, ListenSpecific, "toko", "app", "10.8.0.4/32", nil)
 	if p.Risk() != risk.Dangerous {
 		t.Errorf("risiko = %d", p.Risk())
 	}
@@ -204,7 +204,7 @@ func TestRemoteAccessPlan(t *testing.T) {
 		t.Errorf("baris pg_hba:\n%s", hba)
 	}
 	// Akses lokal saja: tidak mengubah listen_addresses dan cukup reload.
-	local := RemoteAccessPlan(cl, ListenLocal, "toko", "app", "")
+	local := RemoteAccessPlan(cl, ListenLocal, "toko", "app", "", nil)
 	if len(local.Steps) != 3 {
 		t.Fatalf("akses lokal = %d langkah", len(local.Steps))
 	}
@@ -417,5 +417,72 @@ func TestTableBloat(t *testing.T) {
 	}
 	if got := (Table{}).Bloat(); got != 0 {
 		t.Errorf("tabel kosong Bloat = %v", got)
+	}
+}
+
+func TestClusterMajor(t *testing.T) {
+	if got := (Cluster{Version: "18"}).Major(); got != 18 {
+		t.Errorf("Major = %d", got)
+	}
+	if got := (Cluster{Version: "aneh"}).Major(); got != 0 {
+		t.Errorf("versi tidak terbaca = %d", got)
+	}
+}
+
+// PostgreSQL 18 memakai I/O asinkron: effective_io_concurrency bawaannya sudah 16 dan ada io_workers.
+func TestTunePostgreSQL18(t *testing.T) {
+	get := func(ts []Tuned, name string) string {
+		for _, x := range ts {
+			if x.Name == name {
+				return x.Value
+			}
+		}
+		return ""
+	}
+	lama := Tune(Server{RAMBytes: 8 << 30, CPUs: 4, SSD: true, Workload: WorkloadWeb, Major: 16})
+	baru := Tune(Server{RAMBytes: 8 << 30, CPUs: 4, SSD: true, Workload: WorkloadWeb, Major: 18})
+	if get(lama, "effective_io_concurrency") != "200" {
+		t.Errorf("PG16 SSD = %q, ingin 200", get(lama, "effective_io_concurrency"))
+	}
+	if get(baru, "effective_io_concurrency") != "16" {
+		t.Errorf("PG18 SSD = %q, ingin 16 (bawaan baru)", get(baru, "effective_io_concurrency"))
+	}
+	if get(lama, "io_workers") != "" {
+		t.Error("io_workers tidak ada sebelum PostgreSQL 18")
+	}
+	if get(baru, "io_workers") != "3" {
+		t.Errorf("io_workers = %q", get(baru, "io_workers"))
+	}
+	// Hard disk tetap memakai angka kecil, apa pun versinya.
+	hdd := Tune(Server{RAMBytes: 8 << 30, CPUs: 4, Workload: WorkloadWeb, Major: 18})
+	if get(hdd, "effective_io_concurrency") != "2" {
+		t.Errorf("PG18 HDD = %q", get(hdd, "effective_io_concurrency"))
+	}
+	if !strings.Contains(strings.Join(Notes(Server{RAMBytes: 8 << 30, Major: 18}), " "), "io_method") {
+		t.Error("catatan versi tidak menyebut io_method")
+	}
+}
+
+func TestInstallPGDGPlan(t *testing.T) {
+	p := InstallPGDGPlan("18")
+	if len(p.Steps) != 3 {
+		t.Fatalf("langkah = %d", len(p.Steps))
+	}
+	if !strings.Contains(p.Steps[1].Preview(true), "apt.postgresql.org.sh") {
+		t.Errorf("langkah repo = %s", p.Steps[1].Preview(true))
+	}
+	if p.Steps[1].Risk != risk.Dangerous {
+		t.Error("menambah repository pihak ketiga harus ditandai berbahaya")
+	}
+	if !strings.Contains(p.Steps[2].Preview(true), "postgresql-18 postgresql-contrib-18") {
+		t.Errorf("langkah install = %s", p.Steps[2].Preview(true))
+	}
+	if err := ValidMajor("18"); err != nil {
+		t.Errorf("versi 18 ditolak: %v", err)
+	}
+	for _, bad := range []string{"", "delapanbelas", "1", "99"} {
+		if ValidMajor(bad) == nil {
+			t.Errorf("%q seharusnya ditolak", bad)
+		}
 	}
 }

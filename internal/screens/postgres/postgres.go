@@ -5,6 +5,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/arif-rachim/ubuntu-tool/internal/nav"
 	"github.com/arif-rachim/ubuntu-tool/internal/run"
 	"github.com/arif-rachim/ubuntu-tool/internal/screens/shared"
+	"github.com/arif-rachim/ubuntu-tool/internal/sys/firewall"
 	syspg "github.com/arif-rachim/ubuntu-tool/internal/sys/postgres"
 	"github.com/arif-rachim/ubuntu-tool/internal/ui"
 	"github.com/arif-rachim/ubuntu-tool/internal/ui/ask"
@@ -31,6 +33,7 @@ type Model struct {
 	loaded    bool
 	message   string
 	selected  syspg.Database
+	wanted    string // cluster yang dipilih user (kosong = cluster pertama yang berjalan)
 }
 
 type statusMsg struct {
@@ -63,16 +66,24 @@ func (m *Model) Keys() []key.Binding {
 	case syspg.NotInstalled:
 		return []key.Binding{b("i", "install postgresql")}
 	case syspg.NoCluster:
-		return []key.Binding{b("i", "install ulang paket")}
+		return []key.Binding{b("c", "buat cluster"), b("i", "install versi lain")}
 	case syspg.Down:
-		return []key.Binding{b("d", "jalankan cluster")}
+		keys := []key.Binding{b("d", "jalankan cluster")}
+		if len(m.status.Clusters) > 1 {
+			keys = append(keys, b("c", "pilih cluster"))
+		}
+		return keys
 	case syspg.NoPermission:
 		return []key.Binding{b("s", "baca dengan sudo")}
 	case syspg.Unknown:
 		return nil
 	}
-	return []key.Binding{b("enter", "aksi database"), b("a", "buat database"), b("u", "role & akses"), b("m", "monitor"),
+	keys := []key.Binding{b("enter", "aksi database"), b("a", "buat database"), b("u", "role & akses"), b("m", "monitor"),
 		b("b", "cadangan"), b("n", "akses jaringan"), b("t", "setelan")}
+	if len(m.status.Clusters) > 1 {
+		keys = append(keys, b("c", "pilih cluster"))
+	}
+	return keys
 }
 
 func (m *Model) HelpText() string {
@@ -85,7 +96,7 @@ func (m *Model) HelpText() string {
 }
 
 func (m *Model) Init() tea.Cmd {
-	c, r, wanted := m.client, m.env.Runner, m.status.Selected().ID()
+	c, r, wanted := m.client, m.env.Runner, m.wanted
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
@@ -135,13 +146,23 @@ func (m *Model) key(k string) (nav.Screen, tea.Cmd) {
 	m.message = ""
 	switch m.status.Avail {
 	case syspg.NotInstalled, syspg.NoCluster:
-		if k == "i" {
-			return m.confirm(syspg.InstallPlan())
+		switch k {
+		case "i":
+			return m, nav.Push(ask.New(InstallForm()))
+		case "c":
+			if m.status.Avail == syspg.NoCluster {
+				return m, nav.Push(ask.New(ClusterForm(syspg.InstalledVersions())))
+			}
 		}
 		return m, nil
 	case syspg.Down:
-		if k == "d" {
+		switch k {
+		case "d":
 			return m.confirm(syspg.StartClusterPlan(m.status.Selected()))
+		case "c":
+			if len(m.status.Clusters) > 1 {
+				return m, nav.Push(ask.New(ClusterPickForm(m.status.Clusters)))
+			}
 		}
 		return m, nil
 	case syspg.NoPermission:
@@ -167,9 +188,13 @@ func (m *Model) key(k string) (nav.Screen, tea.Cmd) {
 	case "b":
 		return m, nav.Push(NewBackup(m.env, c, m.dbNames()))
 	case "n":
-		return m, nav.Push(ask.New(RemoteAccessForm(m.dbNames(), m.roleNames())))
+		return m, nav.Push(ask.New(RemoteAccessForm(m.dbNames(), m.roleNames(), m.firewallInfo(), m.status.Selected().Port)))
 	case "t":
 		return m, nav.Push(NewTuning(m.env, c, m.status.Selected()))
+	case "c":
+		if len(m.status.Clusters) > 1 {
+			return m, nav.Push(ask.New(ClusterPickForm(m.status.Clusters)))
+		}
 	case "enter":
 		if m.table.Cursor < len(m.databases) {
 			m.selected = m.databases[m.table.Cursor]
@@ -227,8 +252,17 @@ func (m *Model) resumed(res any) (nav.Screen, tea.Cmd) {
 		case "db-ext":
 			return m.confirm(c.CreateExtensionPlan(m.selected.Name, strings.TrimSpace(a["ext"].Value())))
 		case "pg-remote":
-			return m.confirm(syspg.RemoteAccessPlan(m.status.Selected(), a["mode"].Value(),
-				strings.TrimSpace(a["db"].Value()), strings.TrimSpace(a["role"].Value()), strings.TrimSpace(a["cidr"].Value())))
+			return m.remoteAccess(a)
+		case "pg-install":
+			if v := a["versi"].Value(); v != "ubuntu" {
+				return m.confirm(syspg.InstallPGDGPlan(strings.TrimSpace(v)))
+			}
+			return m.confirm(syspg.InstallPlan())
+		case "pg-cluster":
+			return m.confirm(syspg.CreateClusterPlan(strings.TrimSpace(a["versi"].Value()), strings.TrimSpace(a["nama"].Value())))
+		case "pg-pick":
+			m.wanted = a["cluster"].Value()
+			return m, m.Init()
 		}
 	case run.Outcome:
 		if r.Approved {
@@ -241,6 +275,34 @@ func (m *Model) resumed(res any) (nav.Screen, tea.Cmd) {
 		return m, m.Init()
 	}
 	return m, nil
+}
+
+// remoteAccess menggabungkan perubahan PostgreSQL dengan aturan ufw, bila diminta. Aturan firewall
+// disisipkan sebelum port dibuka supaya tidak ada jeda saat port sudah terbuka tetapi belum dipagari.
+func (m *Model) remoteAccess(a ask.Answers) (nav.Screen, tea.Cmd) {
+	cl := m.status.Selected()
+	cidr := strings.TrimSpace(a["cidr"].Value())
+	port := strconv.Itoa(cl.Port)
+	var fw []run.Command
+	switch a["firewall"].Value() {
+	case FirewallFrom:
+		fw = firewall.RulePlan("allow", firewall.Target{Port: port, Proto: "tcp", From: cidr}, "PostgreSQL "+cl.ID()+" (ubt)").Steps
+	case FirewallAny:
+		fw = firewall.RulePlan("allow", firewall.Target{Port: port, Proto: "tcp"}, "PostgreSQL "+cl.ID()+" (ubt)").Steps
+	}
+	return m.confirm(syspg.RemoteAccessPlan(cl, a["mode"].Value(),
+		strings.TrimSpace(a["db"].Value()), strings.TrimSpace(a["role"].Value()), cidr, fw))
+}
+
+// firewallInfo membaca kondisi ufw untuk wizard akses jaringan (hanya membaca).
+func (m *Model) firewallInfo() FirewallInfo {
+	if m.env.Runner == nil {
+		return FirewallInfo{}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	st := firewall.Read(ctx, m.env.Runner, firewall.DefaultPaths)
+	return FirewallInfo{Installed: st.Installed, Active: st.Active}
 }
 
 func (m *Model) databaseAction(a ask.Answers) (nav.Screen, tea.Cmd) {
@@ -295,11 +357,12 @@ func (m *Model) View(width, height int) string {
 	switch st.Avail {
 	case syspg.NotInstalled:
 		add(t.Warning.Render("PostgreSQL belum terpasang di server ini."))
-		add(t.Subtle.Render("Tekan i untuk memasang paket postgresql + postgresql-contrib dari repository Ubuntu. " +
-			"Satu cluster bernama \"main\" langsung dibuat di port 5432 dan hanya menerima koneksi dari server ini."))
+		add(t.Subtle.Render("Tekan i untuk memilih versi dan memasangnya: versi bawaan Ubuntu, atau versi lebih baru " +
+			"(mis. PostgreSQL 18) dari repository resmi PostgreSQL. Satu cluster bernama \"main\" langsung dibuat dan hanya " +
+			"menerima koneksi dari server ini."))
 	case syspg.NoCluster:
 		add(t.Warning.Render("Paket PostgreSQL ada, tetapi belum ada cluster."))
-		add(t.Subtle.Render("Buat cluster dengan: sudo pg_createcluster 17 main --start — atau tekan i untuk memasang ulang paketnya."))
+		add(t.Subtle.Render("Tekan c untuk membuat cluster (pg_createcluster), atau i untuk memasang versi PostgreSQL lain."))
 	case syspg.Down:
 		cl := st.Selected()
 		add(t.Warning.Render("Cluster " + cl.ID() + " (port " + fmt.Sprint(cl.Port) + ") tidak berjalan."))
@@ -321,7 +384,13 @@ func (m *Model) View(width, height int) string {
 	cl, sum := st.Selected(), st.Summary
 	head := " " + t.Title.Render("PostgreSQL "+sum.Version) + "  " + t.Subtle.Render("cluster "+cl.ID()+" · port "+fmt.Sprint(cl.Port))
 	if len(st.Clusters) > 1 {
-		head += t.Muted.Render(fmt.Sprintf(" · %d cluster di server ini", len(st.Clusters)))
+		var lain []string
+		for _, cl2 := range st.Clusters {
+			if cl2.ID() != cl.ID() {
+				lain = append(lain, cl2.ID()+" ("+cl2.Status+")")
+			}
+		}
+		head += t.Muted.Render(" · cluster lain: " + strings.Join(lain, ", ") + " — tekan c untuk pindah")
 	}
 	lines = append(lines, head)
 

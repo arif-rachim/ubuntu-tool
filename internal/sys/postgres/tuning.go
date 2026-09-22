@@ -20,7 +20,12 @@ type Server struct {
 	SSD      bool
 	Workload string
 	MaxConn  int // 0 = pakai saran ubt
+	Major    int // versi mayor PostgreSQL; 18 ke atas memakai I/O asinkron
 }
+
+// AsyncIO melaporkan apakah versi ini memakai I/O asinkron (PostgreSQL 18 ke atas), yang mengubah
+// arti effective_io_concurrency dan menambah io_method/io_workers.
+func (s Server) AsyncIO() bool { return s.Major >= 18 }
 
 // Tuned adalah satu parameter hasil perhitungan.
 type Tuned struct {
@@ -129,6 +134,12 @@ func Tune(s Server) []Tuned {
 	if s.SSD {
 		randomCost, ioConcurrency = "1.1", "200"
 	}
+	if s.AsyncIO() && s.SSD {
+		// Sejak PostgreSQL 18, nilai ini mengatur berapa banyak I/O asinkron yang boleh menunggu
+		// sekaligus, bukan kedalaman prefetch posix_fadvise; bawaannya sudah 16 dan angka lama
+		// seperti 200 justru berlebihan.
+		ioConcurrency = "16"
+	}
 	if s.Workload == WorkloadDW {
 		statsTarget = "500"
 	}
@@ -144,7 +155,7 @@ func Tune(s Server) []Tuned {
 		maxWAL = 8192
 	}
 
-	return []Tuned{
+	out := []Tuned{
 		{Name: "max_connections", Value: strconv.Itoa(maxConn), NeedsRestart: true,
 			Why: "koneksi bersamaan; tiap koneksi memakai memori sendiri, jadi jangan berlebihan — pakai connection pool di aplikasi"},
 		{Name: "shared_buffers", Value: mb(shared), NeedsRestart: true,
@@ -163,6 +174,19 @@ func Tune(s Server) []Tuned {
 		{Name: "max_parallel_workers", Value: strconv.Itoa(cpus), Why: "batas total proses paralel untuk query"},
 		{Name: "max_parallel_workers_per_gather", Value: strconv.Itoa(parallel), Why: "batas proses paralel untuk satu query; terlalu tinggi justru memperlambat beban web"},
 	}
+	if s.AsyncIO() {
+		// io_workers hanya berarti saat io_method = worker (bawaan PostgreSQL 18).
+		workers := cpus / 2
+		switch {
+		case workers < 3:
+			workers = 3
+		case workers > 8:
+			workers = 8
+		}
+		out = append(out, Tuned{Name: "io_workers", Value: strconv.Itoa(workers),
+			Why: "proses pembantu I/O asinkron (baru sejak PostgreSQL 18, dipakai saat io_method = worker); naikkan bila disk sibuk tetapi CPU santai"})
+	}
+	return out
 }
 
 func kbValue(kb int64) string {
@@ -179,6 +203,15 @@ func diskWhy(ssd bool) string {
 	return "hard disk berputar: membaca acak jauh lebih mahal daripada berurutan"
 }
 
+// VersionNote menjelaskan hal yang berbeda di versi PostgreSQL tertentu (kosong bila tidak ada).
+func VersionNote(major int) string {
+	if major >= 18 {
+		return "PostgreSQL 18 memakai I/O asinkron: effective_io_concurrency bawaannya sudah 16 (bukan 1) dan ada " +
+			"parameter baru io_method (bawaan \"worker\") beserta io_workers. Mengubah io_method butuh restart, io_workers cukup reload."
+	}
+	return ""
+}
+
 // Notes adalah catatan tambahan yang perlu dibaca sebelum menerapkan hasil penyetelan.
 func Notes(s Server) []string {
 	var out []string
@@ -188,6 +221,9 @@ func Notes(s Server) []string {
 	}
 	if s.Workload == WorkloadWeb {
 		out = append(out, "Untuk aplikasi web, connection pool (PgBouncer atau pool bawaan framework) jauh lebih berpengaruh daripada menaikkan max_connections.")
+	}
+	if note := VersionNote(s.Major); note != "" {
+		out = append(out, note)
 	}
 	out = append(out, "Angka di atas adalah titik awal. Setelah diterapkan, amati lagi lewat monitor koneksi & query lambat, lalu sesuaikan satu parameter dalam satu waktu.")
 	return out

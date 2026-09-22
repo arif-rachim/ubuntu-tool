@@ -237,9 +237,13 @@ func catalog() []entry {
 	add("pg.RestoreCustom", pgc.RestorePlan("/var/backups/postgresql/"+evil+".dump", evil, true, true))
 	add("pg.RestorePlain", pgc.RestorePlan("/var/backups/postgresql/toko.sql", "toko", false, false))
 	add("pg.BackupScript", run.Single(postgres.BackupSchedule{Databases: []string{evil, "toko"}, Dir: "/var/backups/postgresql", KeepDays: 7, Hour: 2}.ScriptCommand()))
-	add("pg.RemoteLocal", postgres.RemoteAccessPlan(cluster, postgres.ListenLocal, evil, evil, ""))
-	add("pg.RemoteSpecific", postgres.RemoteAccessPlan(cluster, postgres.ListenSpecific, evil, evil, "10.8.0.4/32"))
-	add("pg.RemoteAll", postgres.RemoteAccessPlan(cluster, postgres.ListenAll, "all", "all", "0.0.0.0/0"))
+	add("pg.RemoteLocal", postgres.RemoteAccessPlan(cluster, postgres.ListenLocal, evil, evil, "", nil))
+	ufwRule := firewall.RulePlan("allow", firewall.Target{Port: "5432", Proto: "tcp", From: "10.8.0.4/32"}, "PostgreSQL 17/main (ubt)").Steps
+	add("pg.RemoteSpecific", postgres.RemoteAccessPlan(cluster, postgres.ListenSpecific, evil, evil, "10.8.0.4/32", ufwRule))
+	add("pg.RemoteAll", postgres.RemoteAccessPlan(cluster, postgres.ListenAll, "all", "all", "0.0.0.0/0",
+		firewall.RulePlan("allow", firewall.Target{Port: "5432", Proto: "tcp"}, "PostgreSQL (ubt)").Steps))
+	add("pg.InstallPGDG", postgres.InstallPGDGPlan("18"))
+	add("pg.CreateCluster", postgres.CreateClusterPlan("18", evil))
 	add("pg.ApplySettings", postgres.ApplySettingsPlan(cluster, postgres.Tune(postgres.Server{RAMBytes: 8 << 30, CPUs: 4, SSD: true, Workload: postgres.WorkloadWeb})))
 	add("pg.ApplySettingsReload", postgres.ApplySettingsPlan(cluster, []postgres.Tuned{{Name: "work_mem", Value: "8MB", Why: "uji"}}))
 
