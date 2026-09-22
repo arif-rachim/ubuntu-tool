@@ -311,7 +311,7 @@ func (m *Model) databaseAction(a ask.Answers) (nav.Screen, tea.Cmd) {
 	case "psql":
 		return m.confirm(c.PsqlPlan(db.Name))
 	case "query":
-		return m, nav.Push(ask.New(QueryForm(db.Name)))
+		return m, nav.Push(NewQuery(m.env, c, db.Name))
 	case "grant":
 		return m, nav.Push(ask.New(GrantForm(db.Name, m.roleNames())))
 	case "tables":

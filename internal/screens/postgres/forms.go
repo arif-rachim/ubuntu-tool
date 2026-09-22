@@ -2,7 +2,6 @@ package postgres
 
 import (
 	"strconv"
-	"strings"
 
 	"github.com/arif-rachim/ubuntu-tool/internal/risk"
 	syspg "github.com/arif-rachim/ubuntu-tool/internal/sys/postgres"
@@ -68,32 +67,10 @@ func GrantForm(db string, roles []string) ask.Form {
 	}}
 }
 
-// QueryForm menanyakan query yang akan dijalankan.
-func QueryForm(db string) ask.Form {
-	return ask.Form{ID: "db-query", Title: "Query di " + db, SkipReview: true, Questions: []ask.Question{
-		{ID: "sql", Header: "SQL", Kind: ask.TextArea, Prompt: "Query yang dijalankan di database " + db + "?",
-			Placeholder: "SELECT count(*) FROM pesanan;", Validate: validQuery,
-			Help: "Query yang diawali SELECT/WITH/SHOW/EXPLAIN dijalankan dalam transaksi READ ONLY: server akan menolak bila ternyata ada perintah yang mengubah data. " +
-				"Query lain tetap bisa dijalankan, tetapi ditandai berisiko dan butuh konfirmasi dua kali."},
-	}}
-}
+// inputError adalah pesan validasi sederhana untuk pertanyaan wizard.
+type inputError string
 
-// validQuery memberi peringatan untuk pola query yang sering bikin celaka.
-func validQuery(s string) error {
-	if strings.TrimSpace(s) == "" {
-		return errEmptyQuery
-	}
-	if _, warning := syspg.ClassifyQuery(s); warning != "" {
-		return ask.Warn(warning + " Tekan enter lagi bila memang itu yang kamu maksud.")
-	}
-	return nil
-}
-
-type queryError string
-
-func (e queryError) Error() string { return string(e) }
-
-const errEmptyQuery = queryError("query wajib diisi")
+func (e inputError) Error() string { return string(e) }
 
 // ExtensionForm menanyakan ekstensi yang akan dipasang.
 func ExtensionForm(db string) ask.Form {

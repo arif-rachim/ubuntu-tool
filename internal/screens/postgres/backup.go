@@ -242,7 +242,7 @@ func ScheduleForm(dbs []string, dir string) ask.Form {
 func validDays(s string) error {
 	n, err := strconv.Atoi(strings.TrimSpace(s))
 	if err != nil || n < 1 || n > 365 {
-		return queryError("isi angka 1–365")
+		return inputError("isi angka 1–365")
 	}
 	return nil
 }
@@ -250,7 +250,7 @@ func validDays(s string) error {
 func validHour(s string) error {
 	n, err := strconv.Atoi(strings.TrimSpace(s))
 	if err != nil || n < 0 || n > 23 {
-		return queryError("isi jam 0–23")
+		return inputError("isi jam 0–23")
 	}
 	return nil
 }

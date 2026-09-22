@@ -277,7 +277,7 @@ func validMaxConn(s string) error {
 	}
 	n, err := strconv.Atoi(s)
 	if err != nil || n < 5 || n > 10000 {
-		return queryError("isi angka 5–10000, mis. 100")
+		return inputError("isi angka 5–10000, mis. 100")
 	}
 	if n > 500 {
 		return ask.Warn("Lebih dari 500 koneksi langsung ke PostgreSQL hampir selalu lebih lambat daripada memakai connection pool. Tekan enter lagi bila yakin.")

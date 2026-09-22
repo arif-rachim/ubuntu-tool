@@ -306,6 +306,7 @@ func TestMembukaLayarHanyaMembaca(t *testing.T) {
 			"postgres.monitor": pgscreen.NewMonitor(env, syspg.Client{PsqlBin: "/usr/bin/psql", Port: 5432}, syspg.Status{}, nil),
 			"postgres.tables":  pgscreen.NewTables(env, syspg.Client{PsqlBin: "/usr/bin/psql", Port: 5432}, "toko"),
 			"postgres.tuning":  pgscreen.NewTuning(env, syspg.Client{PsqlBin: "/usr/bin/psql", Port: 5432}, syspg.Cluster{Version: "17", Name: "main", Port: 5432}),
+			"postgres.query":   pgscreen.NewQuery(env, syspg.Client{PsqlBin: "/usr/bin/psql", Port: 5432}, "toko"),
 			"history":          history.New(env, &run.History{Path: filepath.Join(t.TempDir(), "h.log")}),
 			"diagnose (menu)":  diagscreen.New(diagnose.Env{Runner: rec}, nil, nil),
 		}

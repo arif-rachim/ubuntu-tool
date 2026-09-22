@@ -890,6 +890,25 @@ peringatan merah "jangan tutup sesi ini".
     /proc/net/tcp pada saat yang sama (4 vs 4) di server uji dengan container publish port)* —
     koneksi aktif per port, nama container, dan diagnosa pemilik port yang jujur.
 
+22. **Editor query dengan saran otomatis** *(selesai 2026-09-22; `ReadSchema` membaca tabel/view beserta
+    tipe, kunci utama, dan nilai bawaan tiap kolom lewat pg_class/pg_attribute — dibatasi ke skema milik
+    user dan yang benar-benar boleh di-SELECT; mesin saran (`Complete`) murni fungsi tanpa UI sehingga
+    bisa diuji lewat posisi kursor bertanda `|` di teks uji: konteks ditebak dari token sebelum kursor —
+    setelah FROM/JOIN/UPDATE/INTO muncul tabel, setelah SELECT/WHERE/SET muncul kolom tabel yang sedang
+    dipakai (alias `p.` dan `AS x` dikenali, kolom tabel lain tidak ikut bocor), setelah kolom muncul
+    operator sesuai tipe, dan setelah operator muncul bentuk nilai; kolom waktu mendapat perlakuan paling
+    lengkap karena di situ pemula paling sering tersesat — `>=`/`BETWEEN` didahulukan, nilainya
+    `now() - interval '7 days'`, `date_trunc('month', now())`, `current_date - 1`, `DATE '…'`,
+    `TIMESTAMP '…'`, dan `AT TIME ZONE` khusus timestamptz, sementara kolom `date` tidak ditawari
+    saran berjam-jam; string yang belum ditutup mematikan saran, titik koma memisahkan konteks antar
+    perintah; layar editor memakai textarea bubbles, menghitung offset kursor dari Line()+LineInfo(),
+    dan menerima saran dengan mengirim backspace lalu InsertString sehingga kursor tetap benar walau
+    menyunting di tengah teks — template seperti `sum()` menaruh kursor di dalam kurung; query tetap
+    dijalankan lewat QueryPlan yang sudah ada, jadi pengaman READ ONLY dan layar konfirmasi tidak
+    dilewati; diverifikasi di PostgreSQL 18 nyata: query "pesanan 7 hari terakhir" dirangkai hanya dari
+    saran lalu benar-benar mengembalikan baris)* — saran tabel, kolom, kata kunci, fungsi, operator, dan
+    nilai waktu di editor query.
+
 Urutan sengaja menaruh modul yang **mayoritas read-only** (Resource, Disk, Log) sebelum modul yang
 berisiko mengunci user dari server (User & SSH, Firewall), supaya lapisan eksekusi, Plan, dan Stream
 sudah teruji di kasus yang aman.

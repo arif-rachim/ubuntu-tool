@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/arif-rachim/ubuntu-tool/internal/nav"
@@ -294,27 +295,6 @@ func TestBackupDanJadwal(t *testing.T) {
 	}
 }
 
-func TestQueryValidatorMemberiPeringatan(t *testing.T) {
-	err := validQuery("DELETE FROM pesanan")
-	if err == nil {
-		t.Fatal("DELETE tanpa WHERE harus memberi peringatan")
-	}
-	var w *ask.Warning
-	if !strings.Contains(err.Error(), "WHERE") {
-		t.Errorf("peringatan = %v", err)
-	}
-	if _, ok := err.(*ask.Warning); !ok {
-		_ = w
-		t.Errorf("peringatan harus tidak memblokir (ask.Warning), dapat %T", err)
-	}
-	if err := validQuery("SELECT 1"); err != nil {
-		t.Errorf("query baca ditolak: %v", err)
-	}
-	if err := validQuery("   "); err == nil {
-		t.Error("query kosong harus ditolak")
-	}
-}
-
 // Aturan firewall harus dipasang SEBELUM port dibuka, supaya tidak ada jeda saat PostgreSQL
 // mendengarkan jaringan tetapi belum dipagari ufw.
 func TestAksesJaringanDenganUfw(t *testing.T) {
@@ -409,3 +389,257 @@ func TestBuatClusterSaatBelumAda(t *testing.T) {
 		t.Errorf("buat cluster:\n%s", confirm)
 	}
 }
+
+// --- editor query dengan saran otomatis ---------------------------------------------------------
+
+func skemaToko() syspg.Schema {
+	return syspg.Schema{Database: "toko", Relations: []syspg.Relation{
+		{Schema: "public", Name: "pelanggan", Kind: "r", Columns: []syspg.Column{
+			{Name: "id", Type: "integer", PK: true, NotNull: true},
+			{Name: "nama", Type: "text", NotNull: true},
+			{Name: "email", Type: "character varying(120)"},
+		}},
+		{Schema: "public", Name: "pesanan", Kind: "r", Columns: []syspg.Column{
+			{Name: "id", Type: "bigint", PK: true, NotNull: true},
+			{Name: "total", Type: "numeric(12,2)", NotNull: true},
+			{Name: "status", Type: "text"},
+			{Name: "dibuat_pada", Type: "timestamp with time zone", NotNull: true},
+		}},
+	}}
+}
+
+func editor(t *testing.T) *queryModel {
+	t.Helper()
+	m := NewQuery(shared.Env{Now: time.Now}, syspg.Client{Port: 5432}, "toko")
+	m.Update(nav.SizeMsg{Width: 120, Height: 40})
+	m.Update(schemaMsg{owner: m, schema: skemaToko()})
+	return m
+}
+
+// ketik mengirimkan setiap karakter sebagai penekanan tombol, seperti user sungguhan.
+func ketik(m *queryModel, s string) {
+	for _, r := range s {
+		if r == ' ' {
+			m.Update(testutil.Key("space"))
+			continue
+		}
+		m.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
+	}
+}
+
+func saranTeks(m *queryModel) []string {
+	var out []string
+	for _, s := range m.comp.Suggestions {
+		out = append(out, s.Text)
+	}
+	return out
+}
+
+func memuatSaran(m *queryModel, want string) bool {
+	for _, s := range saranTeks(m) {
+		if s == want {
+			return true
+		}
+	}
+	return false
+}
+
+func TestEditorMenampilkanSkema(t *testing.T) {
+	m := editor(t)
+	view := ansi.Strip(m.View(120, 40))
+	if !strings.Contains(view, "2 tabel · 7 kolom dikenali") {
+		t.Errorf("ringkasan skema:\n%s", view)
+	}
+}
+
+func TestEditorMelengkapiNamaTabelDanKolom(t *testing.T) {
+	m := editor(t)
+	ketik(m, "SELECT * FROM pesa")
+	if !memuatSaran(m, "pesanan") {
+		t.Fatalf("saran tabel: %v", saranTeks(m))
+	}
+	view := ansi.Strip(m.View(120, 40))
+	if !strings.Contains(view, "pesanan") || !strings.Contains(view, "tabel") {
+		t.Errorf("daftar saran tidak tampil:\n%s", view)
+	}
+
+	// tab memakai saran: kata yang sedang diketik diganti utuh.
+	m.Update(testutil.Key("tab"))
+	if got := m.area.Value(); got != "SELECT * FROM pesanan" {
+		t.Fatalf("setelah tab = %q", got)
+	}
+
+	// Lanjut mengetik WHERE: kolom tabel itu yang disarankan, lengkap dengan tipenya.
+	ketik(m, " WHERE ")
+	if !memuatSaran(m, "dibuat_pada") || memuatSaran(m, "email") {
+		t.Errorf("kolom di WHERE: %v", saranTeks(m))
+	}
+	view = ansi.Strip(m.View(120, 40))
+	if !strings.Contains(view, "timestamp with time zone") {
+		t.Errorf("tipe kolom tidak ditampilkan:\n%s", view)
+	}
+}
+
+// Inti permintaan: menyaring kolom waktu dituntun sampai bentuk nilainya.
+func TestEditorMenuntunFilterWaktu(t *testing.T) {
+	m := editor(t)
+	ketik(m, "SELECT * FROM pesanan WHERE dibuat_pada ")
+	if got := m.comp.Suggestions[0].Text; got != ">=" {
+		t.Errorf("operator pertama = %q, ingin >=", got)
+	}
+	if !strings.Contains(m.comp.Context, "dibuat_pada") {
+		t.Errorf("konteks = %q", m.comp.Context)
+	}
+	m.Update(testutil.Key("tab"))
+	if got := m.area.Value(); !strings.HasSuffix(got, ">=") {
+		t.Fatalf("setelah memakai operator = %q", got)
+	}
+
+	ketik(m, " ")
+	for _, want := range []string{"now() - interval '7 days'", "date_trunc('month', now())", "current_date"} {
+		if !memuatSaran(m, want) {
+			t.Errorf("nilai waktu %q tidak ada: %v", want, saranTeks(m))
+		}
+	}
+	// Penjelasan singkat ikut ditampilkan supaya user paham maksud nilainya.
+	view := ansi.Strip(m.View(120, 40))
+	if !strings.Contains(view, "zona waktu server") && !strings.Contains(view, "hari ini") {
+		t.Errorf("penjelasan nilai tidak tampil:\n%s", view)
+	}
+
+	// Pilih "7 hari lalu" lalu pakai.
+	for i, s := range m.comp.Suggestions {
+		if s.Text == "now() - interval '7 days'" {
+			m.sel = i
+		}
+	}
+	m.Update(testutil.Key("tab"))
+	if got := m.area.Value(); got != "SELECT * FROM pesanan WHERE dibuat_pada >= now() - interval '7 days'" {
+		t.Fatalf("query akhir = %q", got)
+	}
+}
+
+func TestEditorMemilihSaranDenganCtrlN(t *testing.T) {
+	m := editor(t)
+	ketik(m, "SELECT * FROM ")
+	pertama := m.comp.Suggestions[0].Text
+	m.Update(testutil.Key("ctrl+n"))
+	if m.sel != 1 {
+		t.Fatalf("ctrl+n tidak memindah pilihan: sel=%d", m.sel)
+	}
+	kedua := m.comp.Suggestions[1].Text
+	m.Update(testutil.Key("tab"))
+	if got := m.area.Value(); !strings.HasSuffix(got, kedua) || strings.HasSuffix(got, pertama) {
+		t.Errorf("saran kedua tidak dipakai: %q", got)
+	}
+	m.Update(testutil.Key("ctrl+p"))
+	if m.sel != 0 {
+		t.Errorf("ctrl+p: sel=%d", m.sel)
+	}
+}
+
+func TestEditorKursorBerhentiDiDalamTemplate(t *testing.T) {
+	m := editor(t)
+	ketik(m, "SELECT sum")
+	for i, s := range m.comp.Suggestions {
+		if s.Text == "sum()" {
+			m.sel = i
+		}
+	}
+	m.Update(testutil.Key("tab"))
+	if got := m.area.Value(); got != "SELECT sum()" {
+		t.Fatalf("setelah tab = %q", got)
+	}
+	// Kursor berada di dalam kurung: mengetik langsung mengisi argumennya.
+	ketik(m, "total")
+	if got := m.area.Value(); got != "SELECT sum(total)" {
+		t.Errorf("kursor tidak di dalam kurung: %q", got)
+	}
+}
+
+func TestEditorMenandaiQueryYangMengubahData(t *testing.T) {
+	m := editor(t)
+	ketik(m, "SELECT * FROM pesanan")
+	view := ansi.Strip(m.View(120, 40))
+	if !strings.Contains(view, "hanya membaca") || !strings.Contains(view, "READ ONLY") {
+		t.Errorf("query baca:\n%s", view)
+	}
+
+	m.Update(testutil.Key("ctrl+l"))
+	ketik(m, "UPDATE pesanan SET status = 'lunas'")
+	view = ansi.Strip(m.View(120, 40))
+	if !strings.Contains(view, "mengubah data") {
+		t.Errorf("query tulis tidak ditandai:\n%s", view)
+	}
+	if !strings.Contains(view, "tidak punya WHERE") {
+		t.Errorf("UPDATE tanpa WHERE harus diperingatkan:\n%s", view)
+	}
+}
+
+func TestEditorMenjalankanQuery(t *testing.T) {
+	m := editor(t)
+	ketik(m, "SELECT count(*) FROM pesanan")
+	_, cmd := m.Update(testutil.Key("ctrl+r"))
+	msgs := testutil.Run(cmd)
+	if len(msgs) == 0 {
+		t.Fatal("ctrl+r tidak membuka layar konfirmasi")
+	}
+	confirm := ansi.Strip(msgs[0].(nav.PushMsg).Screen.View(140, 50))
+	for _, want := range []string{"SET TRANSACTION READ ONLY", "SELECT count(*) FROM pesanan", "runuser -u postgres"} {
+		if !strings.Contains(confirm, want) {
+			t.Errorf("konfirmasi tidak memuat %q:\n%s", want, confirm)
+		}
+	}
+
+	// Query kosong tidak dijalankan.
+	m2 := editor(t)
+	if _, cmd := m2.Update(testutil.Key("ctrl+r")); cmd != nil {
+		t.Error("query kosong seharusnya tidak dijalankan")
+	}
+	if !strings.Contains(m2.message, "Tulis query") {
+		t.Errorf("pesan = %q", m2.message)
+	}
+}
+
+func TestEditorEscMenutupSaranLaluKeluar(t *testing.T) {
+	m := editor(t)
+	ketik(m, "SELECT * FROM pe")
+	if !m.HandlesBack() {
+		t.Fatal("saat saran tampil, esc harus ditangani layar")
+	}
+	m.Update(testutil.Key("esc"))
+	if m.visible() {
+		t.Error("esc pertama harus menutup daftar saran")
+	}
+	if m.HandlesBack() {
+		t.Error("setelah saran tertutup, esc harus kembali ke layar sebelumnya")
+	}
+	_, cmd := m.Update(testutil.Key("esc"))
+	if len(testutil.Run(cmd)) == 0 {
+		t.Error("esc kedua harus keluar dari layar")
+	}
+	// Mengetik lagi memunculkan saran kembali.
+	ketik(m, "s")
+	if !m.visible() {
+		t.Error("mengetik harus memunculkan saran lagi")
+	}
+}
+
+func TestEditorSkemaGagalTetapBisaDipakai(t *testing.T) {
+	m := NewQuery(shared.Env{Now: time.Now}, syspg.Client{}, "toko")
+	m.Update(nav.SizeMsg{Width: 120, Height: 40})
+	m.Update(schemaMsg{owner: m, schema: syspg.Schema{Database: "toko"}, err: errExitTest{}})
+	view := ansi.Strip(m.View(120, 40))
+	if !strings.Contains(view, "skema tidak terbaca") {
+		t.Errorf("kegagalan skema tidak disebut:\n%s", view)
+	}
+	// Tetap bisa mengetik dan menjalankan query manual.
+	ketik(m, "SELECT 1")
+	if _, cmd := m.Update(testutil.Key("ctrl+r")); cmd == nil {
+		t.Error("query manual harus tetap bisa dijalankan")
+	}
+}
+
+type errExitTest struct{}
+
+func (errExitTest) Error() string { return "izin ditolak" }
