@@ -1,0 +1,195 @@
+package postgres
+
+import (
+	"strings"
+
+	"github.com/arif-rachim/ubuntu-tool/internal/risk"
+	syspg "github.com/arif-rachim/ubuntu-tool/internal/sys/postgres"
+	"github.com/arif-rachim/ubuntu-tool/internal/ui/ask"
+)
+
+// options mengubah daftar nama menjadi pilihan.
+func options(names []string, desc func(string) string) []ask.Option {
+	out := make([]ask.Option, 0, len(names))
+	for _, n := range names {
+		o := ask.Option{Value: n, Label: n}
+		if desc != nil {
+			o.Description = desc(n)
+		}
+		out = append(out, o)
+	}
+	return out
+}
+
+// DatabaseForm adalah wizard membuat database.
+func DatabaseForm(roles []string) ask.Form {
+	return ask.Form{ID: "db-add", Title: "Buat database", Questions: []ask.Question{
+		{ID: "name", Header: "Nama", Kind: ask.Text, Prompt: "Nama database baru?", Placeholder: "toko_online", Validate: syspg.ValidIdent,
+			Help: "Pakai huruf kecil dan garis bawah. Nama dengan huruf besar atau spasi memaksa semua query menulisnya dalam tanda kutip ganda."},
+		{ID: "owner", Header: "Pemilik", Kind: ask.Single, Optional: true, Other: true, Options: options(roles, func(string) string {
+			return "role ini menjadi pemilik: boleh membuat, mengubah, dan menghapus tabel di dalamnya"
+		}), Prompt: "Role mana yang jadi pemiliknya?", Validate: syspg.ValidIdent,
+			Help: "Idealnya satu aplikasi punya satu role sendiri sebagai pemilik satu database. Kosongkan bila belum ada rolenya — pemiliknya menjadi postgres dan bisa dipindahkan nanti lewat menu akses."},
+	}}
+}
+
+// DatabaseActionForm menawarkan aksi untuk satu database.
+func DatabaseActionForm(d syspg.Database, roles []string) ask.Form {
+	protected := ""
+	if d.Name == "postgres" {
+		protected = "database bawaan yang dipakai perkakas PostgreSQL sendiri"
+	}
+	return ask.Form{ID: "db-action", Title: d.Name, SkipReview: true, Questions: []ask.Question{{
+		ID: "action", Header: "Aksi", Kind: ask.Single, Prompt: "Apa yang ingin dilakukan dengan database " + d.Name + "?",
+		Options: []ask.Option{
+			{Value: "tables", Label: "Lihat tabel & ukurannya", Description: "Tabel terbesar, jumlah baris, sampah hasil UPDATE/DELETE, dan kapan terakhir di-vacuum.", Recommended: true},
+			{Value: "query", Label: "Jalankan query", Description: "Query baca dijalankan dalam transaksi hanya-baca, jadi tidak mungkin mengubah data tanpa sengaja."},
+			{Value: "psql", Label: "Buka psql interaktif", Description: "Shell SQL penuh sebagai superuser. Di dalamnya ubt tidak bisa lagi menjaga.", Risk: risk.Caution},
+			{Value: "grant", Label: "Beri akses ke role", Description: "Wizard hak akses: hanya baca, baca-tulis, atau jadikan pemilik."},
+			{Value: "backup", Label: "Cadangkan / pulihkan", Description: "pg_dump & pg_restore, termasuk jadwal cadangan otomatis."},
+			{Value: "ext", Label: "Pasang ekstensi", Description: "Fungsi tambahan seperti pgcrypto, uuid-ossp, atau pg_trgm untuk pencarian teks."},
+			{Value: "drop", Label: "Hapus database", Description: "Seluruh tabel dan isinya hilang permanen.", Disabled: protected, Risk: risk.Dangerous},
+		},
+	}}}
+}
+
+// GrantForm adalah wizard memberi hak akses satu role ke satu database.
+func GrantForm(db string, roles []string) ask.Form {
+	return ask.Form{ID: "db-grant", Title: "Beri akses ke " + db, Questions: []ask.Question{
+		{ID: "role", Header: "Role", Kind: ask.Single, Other: true, Options: options(roles, nil), Validate: syspg.ValidIdent,
+			Prompt: "Role mana yang diberi akses?",
+			Help:   "Belum ada rolenya? Buat dulu lewat menu role & akses (tombol u di layar PostgreSQL)."},
+		{ID: "level", Header: "Tingkat", Kind: ask.Single, Prompt: "Sampai mana role ini boleh?", Options: []ask.Option{
+			{Value: syspg.AccessRead, Label: "Hanya baca (SELECT)", Description: "Untuk laporan, dashboard, atau analis. Tidak bisa mengubah data sama sekali.", Recommended: true},
+			{Value: syspg.AccessWrite, Label: "Baca & tulis data", Description: "SELECT, INSERT, UPDATE, DELETE pada tabel yang ada dan yang dibuat nanti. Untuk aplikasi yang tabelnya dikelola orang lain."},
+			{Value: syspg.AccessOwner, Label: "Pemilik penuh", Description: "Boleh membuat & menghapus tabel. Untuk aplikasi yang membawa migrasi skemanya sendiri (Rails, Django, Prisma).", Risk: risk.Caution},
+		}},
+	}}
+}
+
+// QueryForm menanyakan query yang akan dijalankan.
+func QueryForm(db string) ask.Form {
+	return ask.Form{ID: "db-query", Title: "Query di " + db, SkipReview: true, Questions: []ask.Question{
+		{ID: "sql", Header: "SQL", Kind: ask.TextArea, Prompt: "Query yang dijalankan di database " + db + "?",
+			Placeholder: "SELECT count(*) FROM pesanan;", Validate: validQuery,
+			Help: "Query yang diawali SELECT/WITH/SHOW/EXPLAIN dijalankan dalam transaksi READ ONLY: server akan menolak bila ternyata ada perintah yang mengubah data. " +
+				"Query lain tetap bisa dijalankan, tetapi ditandai berisiko dan butuh konfirmasi dua kali."},
+	}}
+}
+
+// validQuery memberi peringatan untuk pola query yang sering bikin celaka.
+func validQuery(s string) error {
+	if strings.TrimSpace(s) == "" {
+		return errEmptyQuery
+	}
+	if _, warning := syspg.ClassifyQuery(s); warning != "" {
+		return ask.Warn(warning + " Tekan enter lagi bila memang itu yang kamu maksud.")
+	}
+	return nil
+}
+
+type queryError string
+
+func (e queryError) Error() string { return string(e) }
+
+const errEmptyQuery = queryError("query wajib diisi")
+
+// ExtensionForm menanyakan ekstensi yang akan dipasang.
+func ExtensionForm(db string) ask.Form {
+	return ask.Form{ID: "db-ext", Title: "Pasang ekstensi di " + db, SkipReview: true, Questions: []ask.Question{
+		{ID: "ext", Header: "Ekstensi", Kind: ask.Single, Other: true, Prompt: "Ekstensi mana yang dipasang?", Validate: syspg.ValidIdent,
+			Help: "Ekstensi menambah fungsi ke satu database. Yang tersedia berasal dari paket postgresql-contrib. " +
+				"Lihat daftar lengkapnya di dalam psql dengan: SELECT name, comment FROM pg_available_extensions;",
+			Options: []ask.Option{
+				{Value: "pg_trgm", Label: "pg_trgm", Description: "Pencarian teks mirip (fuzzy) dan LIKE '%kata%' yang bisa memakai index.", Recommended: true},
+				{Value: "pgcrypto", Label: "pgcrypto", Description: "Fungsi enkripsi & hash, mis. untuk menyimpan password aplikasi."},
+				{Value: "uuid-ossp", Label: "uuid-ossp", Description: "Pembuat UUID sebagai id baris, alternatif angka berurutan."},
+				{Value: "unaccent", Label: "unaccent", Description: "Abaikan tanda diakritik saat mencari, mis. \"José\" cocok dengan \"Jose\"."},
+			}},
+	}}
+}
+
+// RoleForm adalah wizard membuat role.
+func RoleForm() ask.Form {
+	isLogin := func(a ask.Answers) bool { return a["kind"].Value() != "group" }
+	return ask.Form{ID: "role-add", Title: "Buat role", Questions: []ask.Question{
+		{ID: "name", Header: "Nama", Kind: ask.Text, Prompt: "Nama role baru?", Placeholder: "app_toko", Validate: syspg.ValidIdent,
+			Help: "Role adalah user database, berbeda dari user Linux. Buat satu role per aplikasi supaya mudah dicabut bila kredensialnya bocor."},
+		{ID: "kind", Header: "Jenis", Kind: ask.Single, Prompt: "Role ini untuk apa?", Options: []ask.Option{
+			{Value: "app", Label: "User aplikasi", Description: "Bisa login dengan password, lalu diberi hak akses ke satu database.", Recommended: true},
+			{Value: "human", Label: "User orang", Description: "Untuk orang yang menyambung dengan psql atau aplikasi GUI."},
+			{Value: "group", Label: "Grup hak akses", Description: "Tidak bisa login sendiri; menampung hak akses lalu diberikan ke role lain."},
+			{Value: "admin", Label: "Superuser", Description: "Hak penuh atas seluruh server database, melewati semua pemeriksaan hak akses.", Risk: risk.Dangerous},
+		}},
+		{ID: "password", Header: "Password", Kind: ask.Confirm, When: isLogin, Default: []string{ask.ValueYes},
+			Prompt: "Set password sekarang?",
+			Options: []ask.Option{
+				{Label: "Ya, minta password", Description: "Terminal akan meminta password dua kali. ubt tidak melihat dan tidak menyimpannya.", Recommended: true},
+				{Label: "Belum", Description: "Role dibuat tanpa password; belum bisa login lewat jaringan sampai passwordnya diatur."},
+			}},
+		{ID: "createdb", Header: "Buat DB", Kind: ask.Confirm, When: isLogin, Default: []string{ask.ValueNo},
+			Prompt: "Boleh membuat database baru sendiri?",
+			Options: []ask.Option{
+				{Label: "Ya", Description: "Berguna untuk role yang menjalankan test atau membuat database sementara."},
+				{Label: "Tidak", Description: "Sesuai prinsip hak seperlunya.", Recommended: true},
+			}},
+	}}
+}
+
+// RoleActionForm menawarkan aksi untuk satu role.
+func RoleActionForm(r syspg.Role, dbs []string) ask.Form {
+	protected := ""
+	if r.Name == syspg.SuperUser {
+		protected = "role bawaan pemilik cluster; menghapusnya membuat PostgreSQL tidak bisa dikelola"
+	}
+	return ask.Form{ID: "role-action", Title: r.Name, SkipReview: true, Questions: []ask.Question{{
+		ID: "action", Header: "Aksi", Kind: ask.Single, Prompt: "Apa yang ingin dilakukan dengan role " + r.Name + "?",
+		Options: []ask.Option{
+			{Value: "password", Label: "Ganti password", Description: "Password dikirim ke server dalam bentuk hash, tidak pernah muncul di log maupun riwayat.", Recommended: true},
+			{Value: "grant", Label: "Beri akses ke database", Description: "Pilih database dan tingkat akses: baca, baca-tulis, atau pemilik."},
+			{Value: "revoke", Label: "Cabut akses dari database", Description: "Mencabut hak role ini pada satu database."},
+			{Value: "drop", Label: "Hapus role", Description: "Aplikasi yang memakainya langsung gagal login. Ditolak bila role masih memiliki tabel atau database.", Disabled: protected, Risk: risk.Dangerous},
+		},
+	}}}
+}
+
+// DatabasePickForm menanyakan database untuk aksi role.
+func DatabasePickForm(id, title, prompt string, dbs []string, withLevel bool) ask.Form {
+	qs := []ask.Question{{
+		ID: "db", Header: "Database", Kind: ask.Single, Other: true, Prompt: prompt, Validate: syspg.ValidIdent,
+		Options: options(dbs, nil),
+	}}
+	if withLevel {
+		qs = append(qs, ask.Question{ID: "level", Header: "Tingkat", Kind: ask.Single, Prompt: "Sampai mana role ini boleh?", Options: []ask.Option{
+			{Value: syspg.AccessRead, Label: "Hanya baca (SELECT)", Description: "Untuk laporan & dashboard.", Recommended: true},
+			{Value: syspg.AccessWrite, Label: "Baca & tulis data", Description: "Untuk aplikasi biasa."},
+			{Value: syspg.AccessOwner, Label: "Pemilik penuh", Description: "Boleh membuat & menghapus tabel.", Risk: risk.Caution},
+		}})
+	}
+	return ask.Form{ID: id, Title: title, Questions: qs}
+}
+
+// RemoteAccessForm adalah wizard membuka akses PostgreSQL dari jaringan.
+func RemoteAccessForm(dbs, roles []string) ask.Form {
+	needsCIDR := func(a ask.Answers) bool { return a["mode"].Value() != syspg.ListenLocal }
+	return ask.Form{ID: "pg-remote", Title: "Akses dari jaringan", Questions: []ask.Question{
+		{ID: "mode", Header: "Dari mana", Kind: ask.Single, Prompt: "Siapa yang perlu menyambung ke database ini?",
+			Help: "Bawaan Ubuntu: PostgreSQL hanya menerima koneksi dari server ini (listen_addresses = localhost). " +
+				"Aplikasi yang berjalan di server yang sama TIDAK perlu perubahan apa pun.",
+			Options: []ask.Option{
+				{Value: syspg.ListenLocal, Label: "Tetap hanya dari server ini", Description: "Cuma menambah aturan pg_hba untuk koneksi lokal. Paling aman.", Recommended: true},
+				{Value: syspg.ListenSpecific, Label: "Dari alamat tertentu", Description: "Mis. satu server aplikasi di jaringan privat. Port 5432 mulai terbuka di jaringan.", Risk: risk.Caution},
+				{Value: syspg.ListenAll, Label: "Dari mana saja yang bisa mencapai port 5432", Description: "Hanya bila kamu benar-benar paham risikonya dan sudah memasang firewall.", Risk: risk.Dangerous},
+			}},
+		{ID: "cidr", Header: "Alamat", Kind: ask.Text, When: needsCIDR, Prompt: "Alamat atau jaringan mana yang diizinkan?",
+			Placeholder: "10.8.0.4/32", Validate: syspg.ValidCIDR,
+			Help: "Tulis /32 untuk satu alamat (mis. 10.8.0.4/32), atau /24 untuk satu jaringan (mis. 192.168.1.0/24). " +
+				"Makin sempit makin aman. 0.0.0.0/0 berarti seluruh internet."},
+		{ID: "db", Header: "Database", Kind: ask.Single, Other: true, Prompt: "Boleh menyambung ke database mana?",
+			Options: append([]ask.Option{{Value: "all", Label: "Semua database", Description: "Aturan berlaku untuk seluruh database di cluster ini."}}, options(dbs, nil)...),
+			Help:    "Sebaiknya sebutkan satu database saja, sesuai aplikasi yang menyambung."},
+		{ID: "role", Header: "Role", Kind: ask.Single, Other: true, Prompt: "Role mana yang boleh dipakai dari sana?",
+			Options: append([]ask.Option{{Value: "all", Label: "Semua role", Description: "Termasuk superuser postgres — tidak disarankan dari jaringan.", Risk: risk.Dangerous}}, options(roles, nil)...),
+			Help:    "Pilih role aplikasi, bukan postgres. Autentikasinya scram-sha-256, jadi role tersebut harus sudah punya password."},
+	}}
+}

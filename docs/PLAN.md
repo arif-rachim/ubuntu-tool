@@ -828,6 +828,38 @@ peringatan merah "jangan tutup sesi ini".
     `needrestart`, `nginx`, `certbot`), `ubt ports --json`, `ubt version`, layar Riwayat + ekspor
     script (`ubt history export`), help overlay, README (`curl` binary rilis + `make install`), skrip rilis.
 
+18. **Docker lanjutan** *(selesai 2026-09-22; profil registry di `~/.config/ubt/registries.json` (0600) hanya
+    berisi alamat + username — password diserahkan ke `docker login` yang menyimpan tokennya sendiri di
+    `~/.docker/config.json`; pesan error push/pull diterjemahkan jadi saran (`x509 unknown authority` →
+    pasang CA ke `/etc/docker/certs.d/HOST/ca.crt`, `HTTP response to HTTPS client` → insecure-registries
+    di `/etc/docker/daemon.json` + restart daemon yang ditandai BAHAYA karena semua container berhenti);
+    wizard `docker run` bertahap — pertanyaan dasar selalu, setting lanjutan (workdir, command, user,
+    network, batas RAM/CPU, healthcheck) hanya setelah dijawab "ya"; command dipecah tanpa shell
+    (`SplitCommand`) sehingga `$(...)` dan `|` tetap teks biasa; resep container disimpan di
+    `~/.config/ubt/containers.json` (ditandai sensitif bila ada environment inline) dan dipakai fitur
+    "buat ulang" (pull → stop → rm → run) setelah image diperbarui; `SpecFromInspect` membangun resep dari
+    container yang dibuat di luar ubt; layar periksa menerjemahkan exit code & OOMKilled dan membaca 50
+    baris log terakhir untuk pola "address already in use"/"permission denied"; volume dicadangkan lewat
+    container alpine sementara dengan volume dipasang `:ro`)* — registry (login, tag+push, pull, CA, insecure),
+    muat/simpan image dari berkas, build, wizard run + resep, buat ulang container, volume & network, stats & diagnosa.
+19. **Modul PostgreSQL (paket apt)** *(selesai 2026-09-22; semua pembacaan lewat
+    `runuser -u postgres -- psql -X -A -t -c 'SELECT coalesce(json_agg(t)::text, …)'` sehingga hasil
+    apa pun aman diparse tanpa menebak pemisah kolom, dan `prog()` di test keselamatan dibuat menembus
+    `runuser`; kondisi dibedakan: paket tidak ada, tanpa cluster, cluster mati, dan "butuh sudo" yang
+    dijawab dengan satu Plan baca (`SELECT 1`) supaya kredensial sudo tersimpan untuk sesi itu;
+    ubt tidak pernah menyentuh `postgresql.conf` bawaan — perubahan ditulis ke `conf.d/10-ubt-tuning.conf`,
+    `20-ubt-listen.conf`, `30-ubt-statements.conf` sehingga membatalkan cukup menghapus berkasnya;
+    `pg_hba.conf` ditambah dengan `tee -a` setelah `cp -a` cadangan, dan aturannya ditulis SEBELUM
+    `listen_addresses` dibuka; password role tidak pernah lewat ubt (`createuser --pwprompt`, `\password`);
+    wizard hak akses menjalankan CONNECT → USAGE → SELECT/DML → ALTER DEFAULT PRIVILEGES sebagai langkah
+    terpisah agar terbaca sebagai pelajaran; query user dibungkus `--single-transaction` dan, untuk query
+    baca, `SET TRANSACTION READ ONLY` sehingga perintah yang ternyata menulis ditolak server;
+    kalkulator penyetelan memakai pedoman umum (shared_buffers ¼ RAM maks 8GB, effective_cache_size ¾ RAM,
+    work_mem dibagi max_connections) dan menandai parameter yang butuh restart; cadangan otomatis =
+    script `/usr/local/bin/ubt-pg-backup` + `/etc/cron.d/ubt-pg-backup` lewat modul Penjadwalan yang sudah ada)* —
+    install & kesehatan cluster, database/role/hak akses, cadangan & pemulihan + jadwal, akses dari
+    jaringan (pg_hba + listen_addresses), monitor koneksi/lock/query lambat/ukuran tabel, penyetelan parameter.
+
 Urutan sengaja menaruh modul yang **mayoritas read-only** (Resource, Disk, Log) sebelum modul yang
 berisiko mengunci user dari server (User & SSH, Firewall), supaya lapisan eksekusi, Plan, dan Stream
 sudah teruji di kasus yang aman.

@@ -73,7 +73,8 @@ func (m *Model) Keys() []key.Binding {
 	case sysdocker.NoPermission:
 		return []key.Binding{b("g", "izinkan tanpa sudo"), b("s", "pakai sudo"), b("n", "buat Dockerfile/compose")}
 	}
-	return []key.Binding{b("enter", "aksi container"), b("e", "shell"), b("l", "log"), b("i", "image"), b("n", "buat file"), b("y", "jalankan python"), b("x", "bersihkan")}
+	return []key.Binding{b("enter", "aksi container"), b("c", "container baru"), b("i", "image"), b("v", "volume & network"), b("u", "registry Nexus"),
+		b("s", "statistik"), b("e", "shell"), b("l", "log"), b("n", "buat file"), b("y", "jalankan python"), b("x", "bersihkan")}
 }
 
 func (m *Model) HelpText() string {
@@ -183,6 +184,14 @@ func (m *Model) key(k string) (nav.Screen, tea.Cmd) {
 		}
 	case "i":
 		return m, nav.Push(newImages(m.env, m.client, st.Images))
+	case "c":
+		return m, nav.Push(ask.New(RunForm(m.client, m.env.Runner, sysdocker.RunSpec{})))
+	case "v":
+		return m, nav.Push(NewVolumes(m.env, m.client, st.Containers))
+	case "u":
+		return m, nav.Push(NewRegistry(m.env, m.client))
+	case "s":
+		return m, nav.Push(NewStats(m.env, m.client))
 	case "y":
 		return m, nav.Push(ask.New(PythonForm(workDir())))
 	case "x":
@@ -206,6 +215,8 @@ func (m *Model) resumed(res any) (nav.Screen, tea.Cmd) {
 		case "prune":
 			a := r.Answers
 			return m.confirm(m.client.PrunePlan(a["what"].Has("images"), a["what"].Has("volumes")))
+		case "run":
+			return m.runContainer(r.Answers)
 		case "files":
 			m.pending = pendingFromAnswers(r.Answers)
 			return m.writeFiles(false)
@@ -255,8 +266,28 @@ func (m *Model) containerAction(a ask.Answers) (nav.Screen, tea.Cmd) {
 		return m.confirm(c.CommitPlan(ct, strings.TrimSpace(a["image"].Value())))
 	case "rm":
 		return m.confirm(c.RemovePlan(ct))
+	case "inspect":
+		return m, nav.Push(NewDetail(m.env, c, ct.Name()))
 	}
 	return m, nil
+}
+
+// runContainer menjalankan container baru dari jawaban wizard, dan mencatat resepnya bila diminta.
+func (m *Model) runContainer(a ask.Answers) (nav.Screen, tea.Cmd) {
+	spec, err := SpecFromAnswers(a)
+	if err != nil {
+		m.message = "✗ " + err.Error()
+		return m, nil
+	}
+	path := ""
+	var recipes sysdocker.Recipes
+	if a["save"].Yes() {
+		if p, err := sysdocker.DefaultRecipePath(); err == nil {
+			path = p
+			recipes, _ = sysdocker.LoadRecipes(p)
+		}
+	}
+	return m.confirm(m.client.RunPlan(spec, path, recipes))
 }
 
 func (m *Model) writeFiles(overwrite bool) (nav.Screen, tea.Cmd) {
@@ -415,6 +446,7 @@ func ContainerActionForm(ct sysdocker.Container) ask.Form {
 		{Value: "restart", Label: "Restart", Description: "Hentikan lalu jalankan lagi; berguna setelah mengubah konfigurasi.", Disabled: notRunning},
 		{Value: "stop", Label: "Hentikan (stop)", Description: "Data tetap ada; bisa dijalankan lagi.", Disabled: notRunning, Risk: risk.Caution},
 		{Value: "commit", Label: "Simpan jadi image (commit)", Description: "Potret isi container sekarang menjadi image baru, mis. setelah install paket di dalamnya."},
+		{Value: "inspect", Label: "Periksa & diagnosa", Description: "Kenapa restart terus / kenapa berhenti, setting apa yang dipakai, dan buat ulang dengan image terbaru."},
 		{Value: "rm", Label: "Hapus container", Description: "File di dalam container (di luar volume) hilang permanen.", Risk: risk.Dangerous},
 	}
 	if p := ct.ComposeProject(); p != "" {
@@ -638,7 +670,14 @@ func (m *imagesModel) setImages(images []sysdocker.Image) {
 func (m *imagesModel) Title() string { return "Image" }
 func (m *imagesModel) Init() tea.Cmd { return nil }
 func (m *imagesModel) Keys() []key.Binding {
-	return []key.Binding{b("enter", "aksi image"), b("p", "unduh image")}
+	return []key.Binding{b("enter", "aksi image"), b("p", "unduh image"), b("b", "build dari Dockerfile"), b("o", "muat dari berkas")}
+}
+
+func (m *imagesModel) HelpText() string {
+	return "Image adalah cetakan berisi sistem file + program; container adalah image yang sedang dijalankan. " +
+		"Image bisa didapat dengan tiga cara: diunduh dari registry (pull), dibangun dari Dockerfile (build), atau dimuat dari berkas arsip (load). " +
+		"Sebaliknya, image bisa diunggah ke registry (push) atau disimpan jadi berkas untuk dipindahkan lewat USB/scp (save). " +
+		"Command setara: docker images, docker pull, docker build, docker load, docker save"
 }
 
 type imagesMsg struct {
@@ -681,6 +720,10 @@ func (m *imagesModel) Update(msg tea.Msg) (nav.Screen, tea.Cmd) {
 				ID: "image", Kind: ask.Text, Prompt: "Image yang diunduh?", Placeholder: "alpine:latest", Validate: sysdocker.ValidImage,
 				Help: "Tanpa tag, docker memakai :latest. Cari nama image di hub.docker.com.",
 			}}}))
+		case "b":
+			return m, nav.Push(ask.New(BuildForm(workDir())))
+		case "o":
+			return m, nav.Push(ask.New(LoadImageForm(workDir())))
 		}
 	case nav.ResumedMsg:
 		switch r := msg.Result.(type) {
@@ -692,6 +735,18 @@ func (m *imagesModel) Update(msg tea.Msg) (nav.Screen, tea.Cmd) {
 			switch r.ID {
 			case "pull":
 				return confirm(m.client.PullPlan(strings.TrimSpace(a["image"].Value())))
+			case "build":
+				return confirm(m.client.BuildPlan(BuildSpecFromAnswers(a)))
+			case "img-load":
+				return confirm(m.client.LoadImagePlan(expandDir(a["file"].Value())))
+			case "img-save":
+				return confirm(m.client.SaveImagePlan([]string{m.selected.Ref()}, expandDir(a["file"].Value())))
+			case "img-push":
+				target := strings.TrimSpace(a["target"].Value())
+				if prefix := strings.TrimSpace(a["registry"].Value()); prefix != "" && !strings.HasPrefix(target, prefix+"/") {
+					target = prefix + "/" + target
+				}
+				return confirm(m.client.PushPlan(m.selected.Ref(), target))
 			case "img-action":
 				ref := m.selected.Ref()
 				switch a["action"].Value() {
@@ -699,9 +754,31 @@ func (m *imagesModel) Update(msg tea.Msg) (nav.Screen, tea.Cmd) {
 					return confirm(m.client.RunShellPlan(ref, false, ""))
 				case "shell-keep":
 					return confirm(m.client.RunShellPlan(ref, true, strings.TrimSpace(a["name"].Value())))
+				case "run":
+					start := sysdocker.RunSpec{Image: ref}
+					return m, nav.Push(ask.New(RunForm(m.client, m.env.Runner, start)))
+				case "save":
+					return m, nav.Push(ask.New(SaveImageForm(m.selected, workDir())))
+				case "push":
+					return m, nav.Push(ask.New(PushImageForm(m.selected)))
 				case "rmi":
 					return confirm(m.client.RemoveImagePlan(m.selected))
 				}
+			case "run":
+				spec, err := SpecFromAnswers(a)
+				if err != nil {
+					m.message = "✗ " + err.Error()
+					return m, nil
+				}
+				path := ""
+				var recipes sysdocker.Recipes
+				if a["save"].Yes() {
+					if p, err := sysdocker.DefaultRecipePath(); err == nil {
+						path = p
+						recipes, _ = sysdocker.LoadRecipes(p)
+					}
+				}
+				return confirm(m.client.RunPlan(spec, path, recipes))
 			}
 		case run.Outcome:
 			if r.Approved {
@@ -740,6 +817,9 @@ func ImageActionForm(img sysdocker.Image) ask.Form {
 		{ID: "action", Header: "Aksi", Kind: ask.Single, Prompt: "Apa yang ingin dilakukan dengan " + img.Ref() + "?", Options: []ask.Option{
 			{Value: "shell", Label: "Coba shell di image ini", Description: "Container sementara, dihapus saat keluar. Cocok untuk melihat-lihat isi image.", Recommended: true},
 			{Value: "shell-keep", Label: "Shell, simpan container setelah keluar", Description: "Untuk install sesuatu lalu commit jadi image baru dari daftar container."},
+			{Value: "run", Label: "Jalankan sebagai container", Description: "Wizard bertahap: port, volume, environment, lalu setting lanjutan bila perlu."},
+			{Value: "push", Label: "Unggah ke registry", Description: "Beri tag alamat registry (mis. Nexus) lalu unggah dengan docker push."},
+			{Value: "save", Label: "Simpan ke berkas arsip", Description: "Satu berkas .tar berisi image lengkap, untuk dipindahkan ke server lain tanpa registry."},
 			{Value: "rmi", Label: "Hapus image", Description: "Membebaskan " + img.Size + ".", Disabled: inUse, Risk: risk.Caution},
 		}},
 		{ID: "name", Header: "Nama", Kind: ask.Text, Prompt: "Nama container?", Placeholder: "eksperimen", Validate: sysdocker.ValidName,

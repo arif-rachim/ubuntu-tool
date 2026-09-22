@@ -55,7 +55,10 @@ func Groups() []Group {
 			{ID: "users", Label: "User & SSH", Desc: "Tambah user, sudo, SSH key, dan amankan server SSH", Phase: 12},
 		}},
 		{"📦", i18n.GroupContainer, []Item{
-			{ID: "docker", Label: "Docker", Desc: "Image, container, shell interaktif, dan wizard compose", Phase: 15},
+			{ID: "docker", Label: "Docker", Desc: "Container, image, registry (Nexus), volume & network, dan wizard jalankan container", Phase: 15},
+		}},
+		{"🗄", i18n.GroupDatabase, []Item{
+			{ID: "postgres", Label: "PostgreSQL", Desc: "Database & role, cadangan terjadwal, akses dari jaringan, monitor, dan penyetelan", Phase: 18},
 		}},
 		{"📜", i18n.GroupHistory, []Item{
 			{ID: "history", Label: "Riwayat perintah", Desc: "Command yang pernah dijalankan ubt, dan ekspor jadi script", Phase: 17},

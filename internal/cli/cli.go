@@ -57,6 +57,10 @@ func Tools() []Tool {
 		{Binary: "nginx", Package: "nginx", Modules: []string{"Web & TLS"}, Purpose: "web server & reverse proxy", Optional: true, Paths: []string{"/usr/sbin/nginx"}},
 		{Binary: "certbot", Package: "certbot (snap)", Modules: []string{"Web & TLS"}, Purpose: "sertifikat HTTPS Let's Encrypt", Optional: true, Paths: []string{"/snap/bin/certbot"}},
 		{Binary: "docker", Package: "docker.io", Modules: []string{"Docker"}, Purpose: "container", Optional: true},
+		{Binary: "psql", Package: "postgresql-client", Modules: []string{"PostgreSQL"}, Purpose: "klien & query database", Optional: true},
+		{Binary: "pg_lsclusters", Package: "postgresql", Modules: []string{"PostgreSQL"}, Purpose: "daftar cluster database", Optional: true, Paths: []string{"/usr/bin/pg_lsclusters"}},
+		{Binary: "pg_dump", Package: "postgresql-client", Modules: []string{"PostgreSQL"}, Purpose: "cadangan database", Optional: true},
+		{Binary: "runuser", Package: "util-linux", Modules: []string{"PostgreSQL"}, Purpose: "menjalankan perintah sebagai user postgres", Paths: []string{"/usr/sbin/runuser", "/sbin/runuser"}},
 	}
 }
 

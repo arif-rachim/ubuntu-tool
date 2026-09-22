@@ -25,13 +25,16 @@ import (
 	"github.com/arif-rachim/ubuntu-tool/internal/screens/network"
 	pkgscreen "github.com/arif-rachim/ubuntu-tool/internal/screens/packages"
 	portscreen "github.com/arif-rachim/ubuntu-tool/internal/screens/ports"
+	pgscreen "github.com/arif-rachim/ubuntu-tool/internal/screens/postgres"
 	resscreen "github.com/arif-rachim/ubuntu-tool/internal/screens/resource"
 	schedscreen "github.com/arif-rachim/ubuntu-tool/internal/screens/schedule"
 	svcscreen "github.com/arif-rachim/ubuntu-tool/internal/screens/services"
 	"github.com/arif-rachim/ubuntu-tool/internal/screens/shared"
 	userscreen "github.com/arif-rachim/ubuntu-tool/internal/screens/users"
 	webscreen "github.com/arif-rachim/ubuntu-tool/internal/screens/web"
+	sysdocker "github.com/arif-rachim/ubuntu-tool/internal/sys/docker"
 	syslogs "github.com/arif-rachim/ubuntu-tool/internal/sys/logs"
+	syspg "github.com/arif-rachim/ubuntu-tool/internal/sys/postgres"
 	"github.com/arif-rachim/ubuntu-tool/internal/ui/runflow"
 )
 
@@ -99,8 +102,36 @@ func readOnly(argv []string) bool {
 		return !anyPrefix(args, "--vacuum", "--rotate", "--flush", "--sync", "--relinquish", "--smart-relinquish", "--setup-keys", "--update-catalog")
 	case "docker":
 		s := sub(args)
-		return oneOf(s, "info", "ps", "images", "version", "logs", "inspect") ||
-			(s == "system" && len(args) > 1 && args[1] == "df") || (s == "compose" && len(args) > 1 && args[1] == "version")
+		return oneOf(s, "info", "ps", "images", "version", "logs", "inspect", "stats") ||
+			(s == "system" && len(args) > 1 && args[1] == "df") || (s == "compose" && len(args) > 1 && args[1] == "version") ||
+			((s == "volume" || s == "network") && len(args) > 1 && args[1] == "ls")
+	case "runuser":
+		// Modul PostgreSQL membaca sebagai user postgres; yang dinilai adalah perintah setelah "--".
+		for i, a := range args {
+			if a == "--" && i+1 < len(args) {
+				return readOnly(args[i+1:])
+			}
+		}
+		return false
+	case "psql":
+		// Hanya membaca bila setiap -c berisi query pembacaan, dan tidak ada berkas SQL yang dijalankan.
+		for i, a := range args {
+			switch {
+			case a == "-f", a == "--file", strings.HasPrefix(a, "--file="):
+				return false
+			case a == "-c" || a == "--command":
+				if i+1 >= len(args) || !readQuery(args[i+1]) {
+					return false
+				}
+			case strings.HasPrefix(a, "--command="):
+				if !readQuery(strings.TrimPrefix(a, "--command=")) {
+					return false
+				}
+			}
+		}
+		return true
+	case "pg_lsclusters", "pg_isready", "pg_conftool":
+		return p != "pg_conftool" || anyPrefix(args, "show")
 	case "apt":
 		return oneOf(sub(args), "list", "policy", "show", "search")
 	case "apt-cache", "dpkg-query", "apt-mark":
@@ -153,6 +184,17 @@ func readOnly(argv []string) bool {
 	return false
 }
 
+// readQuery melaporkan apakah satu perintah psql hanya membaca.
+func readQuery(q string) bool {
+	q = strings.ToLower(strings.TrimSpace(q))
+	for _, p := range []string{"select ", "show ", "explain ", "table "} {
+		if strings.HasPrefix(q, p) {
+			return true
+		}
+	}
+	return false
+}
+
 func TestDaftarReadOnlyTidakTerlaluLonggar(t *testing.T) {
 	mutating := [][]string{
 		{"systemctl", "stop", "nginx"}, {"systemctl", "--user", "restart", "x"}, {"journalctl", "--vacuum-size=1M"},
@@ -160,6 +202,9 @@ func TestDaftarReadOnlyTidakTerlaluLonggar(t *testing.T) {
 		{"dpkg", "-i", "x.deb"}, {"ip", "addr", "add", "1.2.3.4/24", "dev", "eth0"}, {"ufw", "allow", "22"},
 		{"crontab", "-r"}, {"swapon", "/swapfile"}, {"snap", "remove", "x"}, {"ssh-keygen", "-t", "ed25519"},
 		{"rm", "-f", "x"}, {"kill", "1"}, {"tee", "x"}, {"certbot", "renew"},
+		{"docker", "volume", "rm", "x"}, {"docker", "network", "rm", "x"}, {"docker", "push", "x"}, {"docker", "load", "-i", "x.tar"},
+		{"runuser", "-u", "postgres", "--", "dropdb", "toko"}, {"runuser", "-u", "postgres", "--", "psql", "-c", "DROP TABLE x"},
+		{"psql", "-c", "UPDATE x SET y = 1"}, {"psql", "-f", "restore.sql"}, {"pg_ctlcluster", "17", "main", "restart"},
 	}
 	for _, argv := range mutating {
 		if readOnly(argv) {
@@ -238,22 +283,31 @@ func TestMembukaLayarHanyaMembaca(t *testing.T) {
 		env := shared.Env{Runner: rec, ProcRoot: "/proc", UID: 1000, Now: time.Now, Deps: runflow.Deps{}}
 		open := func(string) nav.Screen { return nil }
 		screens := map[string]nav.Screen{
-			"ports":           portscreen.New(env),
-			"resource":        resscreen.New(env),
-			"disk":            diskscreen.New(env),
-			"logs":            logscreen.New(env),
-			"logs.entries":    logscreen.NewEntries(env, "Error", syslogs.Query{Boot: syslogs.BootPtr(0), Priority: 3}),
-			"services":        svcscreen.New(env),
-			"services.detail": svcscreen.NewDetail(env, "ssh.service", false),
-			"packages":        pkgscreen.New(env),
-			"schedule":        schedscreen.New(env),
-			"users":           userscreen.New(env),
-			"firewall":        fwscreen.New(env),
-			"network":         network.New(env, open),
-			"web":             webscreen.New(env),
-			"docker":          dockerscreen.New(env),
-			"history":         history.New(env, &run.History{Path: filepath.Join(t.TempDir(), "h.log")}),
-			"diagnose (menu)": diagscreen.New(diagnose.Env{Runner: rec}, nil, nil),
+			"ports":            portscreen.New(env),
+			"resource":         resscreen.New(env),
+			"disk":             diskscreen.New(env),
+			"logs":             logscreen.New(env),
+			"logs.entries":     logscreen.NewEntries(env, "Error", syslogs.Query{Boot: syslogs.BootPtr(0), Priority: 3}),
+			"services":         svcscreen.New(env),
+			"services.detail":  svcscreen.NewDetail(env, "ssh.service", false),
+			"packages":         pkgscreen.New(env),
+			"schedule":         schedscreen.New(env),
+			"users":            userscreen.New(env),
+			"firewall":         fwscreen.New(env),
+			"network":          network.New(env, open),
+			"web":              webscreen.New(env),
+			"docker":           dockerscreen.New(env),
+			"docker.volumes":   dockerscreen.NewVolumes(env, sysdocker.Client{Bin: "/usr/bin/docker"}, nil),
+			"docker.stats":     dockerscreen.NewStats(env, sysdocker.Client{Bin: "/usr/bin/docker"}),
+			"docker.detail":    dockerscreen.NewDetail(env, sysdocker.Client{Bin: "/usr/bin/docker"}, "app"),
+			"docker.registry":  dockerscreen.NewRegistry(env, sysdocker.Client{Bin: "/usr/bin/docker"}),
+			"postgres":         pgscreen.New(env),
+			"postgres.roles":   pgscreen.NewRoles(env, syspg.Client{PsqlBin: "/usr/bin/psql", Port: 5432}, nil),
+			"postgres.monitor": pgscreen.NewMonitor(env, syspg.Client{PsqlBin: "/usr/bin/psql", Port: 5432}, syspg.Status{}, nil),
+			"postgres.tables":  pgscreen.NewTables(env, syspg.Client{PsqlBin: "/usr/bin/psql", Port: 5432}, "toko"),
+			"postgres.tuning":  pgscreen.NewTuning(env, syspg.Client{PsqlBin: "/usr/bin/psql", Port: 5432}, syspg.Cluster{Version: "17", Name: "main", Port: 5432}),
+			"history":          history.New(env, &run.History{Path: filepath.Join(t.TempDir(), "h.log")}),
+			"diagnose (menu)":  diagscreen.New(diagnose.Env{Runner: rec}, nil, nil),
 		}
 		for name, s := range screens {
 			before := len(rec.snapshot())

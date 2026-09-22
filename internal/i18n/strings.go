@@ -38,6 +38,7 @@ const (
 	GroupNetwork    = "Jaringan"
 	GroupAccess     = "Akses"
 	GroupContainer  = "Container"
+	GroupDatabase   = "Database"
 	GroupHistory    = "Riwayat"
 	PlaceholderBody = "Modul ini belum tersedia di build ini."
 	PlaceholderPlan = "Direncanakan di fase %d — lihat docs/PLAN.md."

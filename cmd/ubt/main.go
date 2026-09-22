@@ -28,6 +28,7 @@ import (
 	"github.com/arif-rachim/ubuntu-tool/internal/screens/network"
 	"github.com/arif-rachim/ubuntu-tool/internal/screens/packages"
 	"github.com/arif-rachim/ubuntu-tool/internal/screens/ports"
+	"github.com/arif-rachim/ubuntu-tool/internal/screens/postgres"
 	"github.com/arif-rachim/ubuntu-tool/internal/screens/resource"
 	"github.com/arif-rachim/ubuntu-tool/internal/screens/schedule"
 	"github.com/arif-rachim/ubuntu-tool/internal/screens/services"
@@ -137,6 +138,7 @@ func openers(env shared.Env) map[string]func() nav.Screen {
 		"firewall": func() nav.Screen { return firewall.New(env) },
 		"web":      func() nav.Screen { return web.New(env) },
 		"docker":   func() nav.Screen { return docker.New(env) },
+		"postgres": func() nav.Screen { return postgres.New(env) },
 		"history":  func() nav.Screen { return history.New(env, nil) },
 	}
 	return m

@@ -24,6 +24,8 @@ kamu belajar command aslinya.
 - **sudo hanya saat perlu**, password diminta sekali oleh sudo sendiri (ubt tidak pernah menyimpannya).
 - **Riwayat** setiap command tersimpan di `~/.config/ubt/history.log` (izin 0600) dan bisa diekspor
   jadi script bash. Isi rahasia tidak pernah dicatat.
+- **Password tidak pernah lewat ubt.** Login registry diserahkan ke `docker login`, password role
+  PostgreSQL ke `createuser --pwprompt` / `\password` — ubt hanya mencatat alamat & username.
 
 ## Modul
 
@@ -41,7 +43,8 @@ kamu belajar command aslinya.
 | | Firewall (ufw) | Allow/deny dengan preset, hapus aturan, aktifkan tanpa memutus SSH |
 | | Web & TLS | Reverse proxy nginx, HTTPS Let's Encrypt, cek sertifikat domain mana pun |
 | 🔑 Akses | User & SSH | Tambah user, sudo, SSH key, amankan sshd |
-| 📦 Container | Docker | Container & image, shell interaktif, commit, wizard Dockerfile/compose, jalankan Python |
+| 📦 Container | Docker | Wizard jalankan container (port, volume, env, workdir, command, limit), build & registry Nexus (login/push/pull), muat & simpan image dari berkas, volume & network, commit, periksa & buat ulang container |
+| 🗄 Database | PostgreSQL | Install & cek kesehatan, database/role/hak akses, cadangan + jadwal otomatis, akses dari jaringan, monitor koneksi & query lambat, penyetelan parameter |
 | 📜 Riwayat | Riwayat perintah | Lihat apa yang pernah diubah, ekspor jadi script |
 
 Rencana dan catatan desain lengkap ada di [`docs/PLAN.md`](docs/PLAN.md).
