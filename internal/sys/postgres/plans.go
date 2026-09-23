@@ -420,8 +420,13 @@ func ClassifyQuery(sql string) (kind, warning string) {
 		kind = QueryWrite
 	case !hasPrefix(first, readPrefix):
 		kind = QueryWrite // tidak dikenali: perlakukan sebagai perubahan
+	case multiStatement(s):
+		// "SELECT …; DELETE …" diawali kata baca tetapi perintah berikutnya bisa mengubah data.
+		kind = QueryWrite
 	}
 	switch {
+	case multiStatement(s):
+		warning = "Ada lebih dari satu perintah di sini (dipisah titik koma). Semuanya dijalankan berurutan."
 	case (strings.HasPrefix(s, "update") || strings.HasPrefix(s, "delete")) && !strings.Contains(s, " where "):
 		warning = "Query ini tidak punya WHERE, jadi berlaku untuk SEMUA baris di tabel."
 	case strings.HasPrefix(s, "drop"):
@@ -430,6 +435,26 @@ func ClassifyQuery(sql string) (kind, warning string) {
 		warning = "TRUNCATE mengosongkan seluruh isi tabel dan tidak bisa dibatalkan."
 	}
 	return kind, warning
+}
+
+// multiStatement melaporkan apakah teks berisi lebih dari satu perintah SQL. Titik koma di dalam
+// string literal tidak dihitung, dan titik koma penutup di ujung teks bukan perintah kedua.
+func multiStatement(s string) bool {
+	quote := byte(0)
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case quote != 0:
+			if c == quote {
+				quote = 0
+			}
+		case c == '\'' || c == '"':
+			quote = c
+		case c == ';':
+			return strings.TrimSpace(s[i+1:]) != ""
+		}
+	}
+	return false
 }
 
 func hasPrefix(word string, set []string) bool {

@@ -184,15 +184,55 @@ func readOnly(argv []string) bool {
 	return false
 }
 
-// readQuery melaporkan apakah satu perintah psql hanya membaca.
+// readQuery melaporkan apakah satu perintah psql hanya membaca. Selain query pembacaan biasa,
+// diterima dua pengaman transaksi yang dipakai layar hasil query, serta COPY (…) TO STDOUT yang
+// isinya query pembacaan — COPY ke berkas atau COPY … FROM tetap ditolak karena itu menulis.
 func readQuery(q string) bool {
 	q = strings.ToLower(strings.TrimSpace(q))
+	q = strings.TrimSpace(strings.TrimSuffix(q, ";"))
+	switch {
+	case q == "set transaction read only":
+		return true
+	case strings.HasPrefix(q, "set local statement_timeout ="):
+		return true
+	case strings.HasPrefix(q, "copy ("):
+		inner, rest, ok := outerParen(strings.TrimPrefix(q, "copy "))
+		return ok && readQuery(inner) && strings.HasPrefix(strings.TrimSpace(rest), "to stdout")
+	}
 	for _, p := range []string{"select ", "show ", "explain ", "table "} {
 		if strings.HasPrefix(q, p) {
 			return true
 		}
 	}
 	return false
+}
+
+// outerParen memisahkan isi tanda kurung terluar dari sisa teksnya. Tanda kurung di dalam string
+// literal diabaikan supaya query seperti WHERE nama = '(a)' tidak salah potong.
+func outerParen(s string) (inner, rest string, ok bool) {
+	if !strings.HasPrefix(s, "(") {
+		return "", "", false
+	}
+	depth, quote := 0, byte(0)
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case quote != 0:
+			if c == quote {
+				quote = 0
+			}
+		case c == '\'' || c == '"':
+			quote = c
+		case c == '(':
+			depth++
+		case c == ')':
+			depth--
+			if depth == 0 {
+				return strings.TrimSpace(s[1:i]), s[i+1:], true
+			}
+		}
+	}
+	return "", "", false
 }
 
 func TestDaftarReadOnlyTidakTerlaluLonggar(t *testing.T) {
@@ -205,6 +245,9 @@ func TestDaftarReadOnlyTidakTerlaluLonggar(t *testing.T) {
 		{"docker", "volume", "rm", "x"}, {"docker", "network", "rm", "x"}, {"docker", "push", "x"}, {"docker", "load", "-i", "x.tar"},
 		{"runuser", "-u", "postgres", "--", "dropdb", "toko"}, {"runuser", "-u", "postgres", "--", "psql", "-c", "DROP TABLE x"},
 		{"psql", "-c", "UPDATE x SET y = 1"}, {"psql", "-f", "restore.sql"}, {"pg_ctlcluster", "17", "main", "restart"},
+		{"psql", "-c", "COPY (SELECT 1) TO '/tmp/keluar.csv'"}, {"psql", "-c", "COPY pesanan FROM STDIN WITH CSV"},
+		{"psql", "-c", "COPY (DELETE FROM pesanan RETURNING *) TO STDOUT"}, {"psql", "-c", "SET TRANSACTION READ WRITE"},
+		{"psql", "-c", "SET LOCAL role = postgres"},
 	}
 	for _, argv := range mutating {
 		if readOnly(argv) {
@@ -307,6 +350,7 @@ func TestMembukaLayarHanyaMembaca(t *testing.T) {
 			"postgres.tables":  pgscreen.NewTables(env, syspg.Client{PsqlBin: "/usr/bin/psql", Port: 5432}, "toko"),
 			"postgres.tuning":  pgscreen.NewTuning(env, syspg.Client{PsqlBin: "/usr/bin/psql", Port: 5432}, syspg.Cluster{Version: "17", Name: "main", Port: 5432}),
 			"postgres.query":   pgscreen.NewQuery(env, syspg.Client{PsqlBin: "/usr/bin/psql", Port: 5432}, "toko"),
+			"postgres.result":  pgscreen.NewResult(env, syspg.Client{PsqlBin: "/usr/bin/psql", Port: 5432}, "toko", "SELECT * FROM pesanan"),
 			"history":          history.New(env, &run.History{Path: filepath.Join(t.TempDir(), "h.log")}),
 			"diagnose (menu)":  diagscreen.New(diagnose.Env{Runner: rec}, nil, nil),
 		}

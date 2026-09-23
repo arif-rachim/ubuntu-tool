@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -65,6 +66,12 @@ func TestClassifyQuery(t *testing.T) {
 		{"DROP TABLE pesanan", QueryDDL, "tidak bisa dibatalkan"},
 		{"TRUNCATE pesanan", QueryDDL, "mengosongkan"},
 		{"VACUUM FULL", QueryDDL, ""},
+		// Titik koma penutup bukan perintah kedua, dan titik koma di dalam teks bukan pemisah.
+		{"SELECT * FROM pesanan;", QueryRead, ""},
+		{"SELECT * FROM pesanan WHERE catatan = 'a;b'", QueryRead, ""},
+		// Perintah kedua yang menempel di belakang query baca ikut dijalankan, jadi tidak boleh
+		// diperlakukan sebagai bacaan biasa.
+		{"SELECT 1; DELETE FROM pesanan", QueryWrite, "lebih dari satu perintah"},
 	}
 	for _, tc := range cases {
 		kind, warn := ClassifyQuery(tc.sql)
@@ -484,5 +491,113 @@ func TestInstallPGDGPlan(t *testing.T) {
 		if ValidMajor(bad) == nil {
 			t.Errorf("%q seharusnya ditolak", bad)
 		}
+	}
+}
+
+func TestParseCopyTextHasilQuery(t *testing.T) {
+	// Tab, baris baru, dan backslash di dalam nilai selalu di-escape COPY, jadi harus kembali utuh.
+	out := "id\tnama\tcatatan\ttotal\n" +
+		"1\tBudi\tsuka kopi\\tteh\t150000\n" +
+		"2\tSiti\tbaris satu\\nbaris dua\t75000\n" +
+		"3\tAnon\t\\N\t0\n" +
+		"4\tKosong\t\t0\n" +
+		"5\tHarfiah\t\\\\N\t0\n"
+	res := ParseCopyText(out)
+	if got := res.Columns; len(got) != 4 || got[2] != "catatan" {
+		t.Fatalf("kolom = %v", got)
+	}
+	if len(res.Rows) != 5 {
+		t.Fatalf("%d baris", len(res.Rows))
+	}
+	if got := res.Rows[0][2]; got != "suka kopi\tteh" {
+		t.Errorf("tab di dalam nilai = %q", got)
+	}
+	if got := res.Rows[1][2]; got != "baris satu\nbaris dua" {
+		t.Errorf("baris baru di dalam nilai = %q", got)
+	}
+	// NULL, teks kosong, dan teks "\N" yang sungguhan adalah tiga hal berbeda.
+	if !IsNull(res.Rows[2][2]) || Display(res.Rows[2][2]) != "NULL" {
+		t.Errorf("NULL = %q", res.Rows[2][2])
+	}
+	if IsNull(res.Rows[3][2]) || res.Rows[3][2] != "" {
+		t.Errorf("teks kosong = %q, tidak boleh dianggap NULL", res.Rows[3][2])
+	}
+	if got := res.Rows[4][2]; IsNull(got) || got != `\N` {
+		t.Errorf("teks harfiah \\N = %q", got)
+	}
+	// Kolom angka dikenali supaya bisa dirata-kanankan; kolom teks tidak.
+	if !res.NumericColumn(3) || res.NumericColumn(1) {
+		t.Error("deteksi kolom angka salah")
+	}
+	// Kolom id berisi angka satu digit, tetapi judulnya 2 huruf.
+	if got := res.Widest(0); got != 2 {
+		t.Errorf("lebar kolom id = %d", got)
+	}
+}
+
+func TestParseCopyTextKosongDanTanpaBaris(t *testing.T) {
+	res := ParseCopyText("")
+	if len(res.Columns) != 0 || !res.Empty() {
+		t.Errorf("keluaran kosong: %+v", res)
+	}
+	res = ParseCopyText("id\tnama\n")
+	if len(res.Columns) != 2 || !res.Empty() {
+		t.Errorf("hanya header: %+v", res)
+	}
+}
+
+func TestParseCopyTextMembatasiBaris(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("id\n")
+	for i := 0; i < MaxResultRows+50; i++ {
+		fmt.Fprintf(&b, "%d\n", i)
+	}
+	res := ParseCopyText(b.String())
+	if len(res.Rows) != MaxResultRows || !res.Truncated {
+		t.Errorf("%d baris, truncated=%v", len(res.Rows), res.Truncated)
+	}
+}
+
+func TestResultCommandMembungkusQuery(t *testing.T) {
+	c := Client{Port: 5433}
+	cmd := c.ResultCommand("toko", "SELECT * FROM pesanan;")
+	prev := cmd.Preview(true)
+	for _, want := range []string{
+		"runuser -u postgres", "--single-transaction", "SET TRANSACTION READ ONLY",
+		"statement_timeout", "COPY (SELECT * FROM pesanan) TO STDOUT WITH (HEADER true)", "-p 5433",
+	} {
+		if !strings.Contains(prev, want) {
+			t.Errorf("command tidak memuat %q:\n%s", want, prev)
+		}
+	}
+	// Titik koma di akhir query user dibuang supaya COPY tetap sah.
+	if strings.Contains(prev, "pesanan;)") {
+		t.Errorf("titik koma tidak dibuang:\n%s", prev)
+	}
+	// Command harus bisa dijalankan apa adanya: argumen tidak boleh mengandung byte NUL.
+	for _, a := range cmd.Argv {
+		if strings.ContainsRune(a, 0) {
+			t.Errorf("argumen %q mengandung byte NUL — exec akan menolaknya", a)
+		}
+	}
+	if cmd.Risk != risk.Safe || !cmd.NeedsRoot {
+		t.Errorf("risiko=%d needsRoot=%v", cmd.Risk, cmd.NeedsRoot)
+	}
+}
+
+func TestRunQueryMembacaHasil(t *testing.T) {
+	f := &fakeRunner{out: "id\tnama\n1\tBudi\n"}
+	res, err := Client{}.RunQuery(context.Background(), f, "toko", "SELECT id, nama FROM pelanggan")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Rows) != 1 || res.Rows[0][1] != "Budi" {
+		t.Errorf("hasil = %+v", res)
+	}
+	// Error dari server diteruskan apa adanya supaya user bisa memperbaiki query-nya.
+	f = &fakeRunner{stderr: `ERROR:  column "nam" does not exist`, err: errExit}
+	if _, err := (Client{}).RunQuery(context.Background(), f, "toko", "SELECT nam FROM pelanggan"); err == nil ||
+		!strings.Contains(err.Error(), "does not exist") {
+		t.Errorf("error = %v", err)
 	}
 }

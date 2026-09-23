@@ -77,7 +77,7 @@ func (m *queryModel) Init() tea.Cmd {
 
 func (m *queryModel) Keys() []key.Binding {
 	return []key.Binding{
-		b("tab", "pakai saran"), b("ctrl+n/p", "pilih saran"), b("ctrl+r", "jalankan"),
+		b("tab", "pakai saran"), b("ctrl+n/p", "pilih saran"), b("ctrl+r", "jalankan & lihat hasil"),
 		b("ctrl+l", "kosongkan"), b("esc", "tutup saran"),
 	}
 }
@@ -86,7 +86,7 @@ func (m *queryModel) HelpText() string {
 	return "Editor ini tahu isi database " + m.db + ": nama tabel, nama kolom, dan tipe tiap kolom dibaca sekali saat layar dibuka. " +
 		"Saran menyesuaikan posisi kursor — setelah FROM muncul nama tabel, setelah WHERE muncul kolom, " +
 		"dan setelah kolom waktu muncul operator (>=, BETWEEN) beserta bentuk nilainya (now() - interval '7 days', date_trunc('month', now()), DATE '2026-01-31'). " +
-		"Query yang diawali SELECT dijalankan dalam transaksi READ ONLY, jadi tidak mungkin mengubah data tanpa sengaja; " +
+		"Query yang diawali SELECT dijalankan dalam transaksi READ ONLY dan hasilnya langsung tampil sebagai tabel yang bisa digulir & disaring; " +
 		"query yang mengubah data tetap bisa dijalankan tetapi ditandai berisiko dan butuh konfirmasi. " +
 		"Command setara: sudo -u postgres psql -d " + m.db
 }
@@ -111,9 +111,9 @@ func (m *queryModel) Update(msg tea.Msg) (nav.Screen, tea.Cmd) {
 	case nav.ResumedMsg:
 		if o, ok := msg.Result.(run.Outcome); ok && o.Approved {
 			if o.OK() {
-				m.message = "✓ Query selesai. Hasilnya ada di layar sebelumnya (esc untuk kembali ke sini kapan saja)."
+				m.message = "✓ Query selesai."
 			} else {
-				m.message = "✗ Query gagal — pesan error PostgreSQL biasanya menyebut baris & kolom penyebabnya."
+				m.message = "✗ Query gagal — pesan error PostgreSQL biasanya menyebut bagian query penyebabnya."
 			}
 		}
 		return m, nil
@@ -213,7 +213,9 @@ func (m *queryModel) accept() {
 	m.refresh()
 }
 
-// run menyerahkan query ke alur konfirmasi biasa: command persis ditampilkan lebih dulu.
+// run menjalankan query. Query baca langsung ditampilkan sebagai tabel — sama seperti layar lain
+// yang membaca kondisi server tanpa konfirmasi. Query yang mengubah data tetap lewat alur
+// konfirmasi biasa: command persis ditampilkan dan disetujui dulu.
 func (m *queryModel) run() (nav.Screen, tea.Cmd) {
 	sql := strings.TrimSpace(m.area.Value())
 	if sql == "" {
@@ -221,6 +223,9 @@ func (m *queryModel) run() (nav.Screen, tea.Cmd) {
 		return m, nil
 	}
 	m.hidden = true
+	if kind, _ := syspg.ClassifyQuery(sql); kind == syspg.QueryRead {
+		return m, nav.Push(NewResult(m.env, m.client, m.db, sql))
+	}
 	return m, nav.Push(runflow.Confirm(m.client.QueryPlan(m.db, sql), m.env.Deps))
 }
 
@@ -262,7 +267,7 @@ func (m *queryModel) View(width, height int) string {
 
 	if !m.visible() {
 		add("")
-		add(" " + t.Subtle.Render("ctrl+n untuk saran · ctrl+r menjalankan · esc kembali"))
+		add(" " + t.Subtle.Render("ctrl+n untuk saran · ctrl+r menjalankan & menampilkan hasil · esc kembali"))
 		return ui.FitHeight(strings.Join(lines, "\n"), width, height)
 	}
 

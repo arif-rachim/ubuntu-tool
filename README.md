@@ -47,7 +47,7 @@ kamu belajar command aslinya.
 | | Web & TLS | Reverse proxy nginx, HTTPS Let's Encrypt, cek sertifikat domain mana pun |
 | 🔑 Akses | User & SSH | Tambah user, sudo, SSH key, amankan sshd |
 | 📦 Container | Docker | Wizard jalankan container (port, volume, env, workdir, command, limit), build & registry Nexus (login/push/pull), muat & simpan image dari berkas, volume & network, commit, periksa & buat ulang container |
-| 🗄 Database | PostgreSQL | Install versi pilihan (bawaan Ubuntu atau PGDG, mis. 18), database/role/hak akses, editor query dengan saran nama tabel/kolom & bentuk nilai waktu, cadangan + jadwal otomatis, akses dari jaringan sekalian aturan ufw, monitor koneksi & query lambat, penyetelan parameter |
+| 🗄 Database | PostgreSQL | Install versi pilihan (bawaan Ubuntu atau PGDG, mis. 18), database/role/hak akses, editor query dengan saran nama tabel/kolom & bentuk nilai waktu dan hasil berbentuk tabel (bisa digulir, disaring, dibuka per baris), cadangan + jadwal otomatis, akses dari jaringan sekalian aturan ufw, monitor koneksi & query lambat, penyetelan parameter |
 | 📜 Riwayat | Riwayat perintah | Lihat apa yang pernah diubah, ekspor jadi script |
 
 Rencana dan catatan desain lengkap ada di [`docs/PLAN.md`](docs/PLAN.md).

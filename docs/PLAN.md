@@ -909,6 +909,23 @@ peringatan merah "jangan tutup sesi ini".
     saran lalu benar-benar mengembalikan baris)* — saran tabel, kolom, kata kunci, fungsi, operator, dan
     nilai waktu di editor query.
 
+23. **Hasil query sebagai tabel** *(selesai 2026-09-23; hasil dibaca lewat `COPY (…) TO STDOUT WITH
+    (HEADER true)` — format teks COPY dipilih setelah percobaan di server nyata: ia satu-satunya bentuk
+    yang tidak bisa disamar data, karena tab/baris baru/backslash selalu di-escape dan NULL keluar
+    sebagai `\N` sedangkan teks kosong keluar sebagai kolom kosong, sementara sentinel NULL buatan
+    sendiri sempat memakai byte NUL yang ditolak exec (`invalid argument`) dan teks "\N" yang sungguhan
+    pun tetap terbedakan karena keluar sebagai `\\N`; query dibungkus `--single-transaction` +
+    `SET TRANSACTION READ ONLY` + `SET LOCAL statement_timeout`, dan dibatasi 5000 baris dengan
+    penanda terpotong supaya `SELECT *` di tabel besar tidak menghabiskan memori; lebar kolom mengikuti
+    isi terpanjang dengan batas 28 karakter, kolom yang seluruhnya angka dirata-kanankan, sel NULL
+    diredupkan, `/` menyaring baris, dan enter membuka satu baris secara vertikal dengan isi utuh yang
+    dilipat — bukan dipotong; nilai berbaris banyak dipipihkan jadi `↵` di tabel setelah rendering di
+    server nyata memperlihatkan barisnya tumpah dan merusak kesejajaran kolom; `ClassifyQuery` kini
+    menganggap "SELECT …; DELETE …" sebagai perubahan, karena titik koma di tengah teks berarti ada
+    perintah kedua yang ikut jalan; daftar read-only di `internal/safety` diperluas persis untuk tiga
+    argumen ini — COPY hanya sah bila isinya query pembacaan dan tujuannya STDOUT)* — hasil query
+    langsung terbaca sebagai tabel yang bisa digulir, disaring, dan dibuka per baris.
+
 Urutan sengaja menaruh modul yang **mayoritas read-only** (Resource, Disk, Log) sebelum modul yang
 berisiko mengunci user dari server (User & SSH, Firewall), supaya lapisan eksekusi, Plan, dan Stream
 sudah teruji di kasus yang aman.
