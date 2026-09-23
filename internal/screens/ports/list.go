@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/textinput"
@@ -16,6 +17,7 @@ import (
 	"github.com/arif-rachim/ubuntu-tool/internal/nav"
 	"github.com/arif-rachim/ubuntu-tool/internal/run"
 	"github.com/arif-rachim/ubuntu-tool/internal/screens/shared"
+	sysdocker "github.com/arif-rachim/ubuntu-tool/internal/sys/docker"
 	sysports "github.com/arif-rachim/ubuntu-tool/internal/sys/ports"
 	"github.com/arif-rachim/ubuntu-tool/internal/sys/procs"
 	"github.com/arif-rachim/ubuntu-tool/internal/ui"
@@ -26,6 +28,32 @@ type Data struct {
 	Snap   sysports.Snapshot
 	Procs  map[int]procs.Process
 	Source string // "proc" atau "ss"
+	// Containers dipakai untuk menamai container: baik proses yang berjalan DI DALAM container,
+	// maupun port host yang dipublikasikan container lewat docker-proxy.
+	Containers []sysdocker.Container
+	Published  map[string]sysdocker.PublishedPort // "8080/tcp" → container
+}
+
+// proxyNames adalah proses penerus port milik Docker; port yang dipegangnya sebenarnya milik container.
+var proxyNames = map[string]bool{"docker-proxy": true, "rootlesskit": true, "rootlesskit-docker-proxy": true, "slirp4netns": true}
+
+// Container menjelaskan container di balik sebuah listener: proses yang berjalan di dalam container,
+// atau port host yang dipublikasikan container. Kosong bila tidak ada kaitannya dengan Docker.
+func (d Data) Container(l sysports.Listener, p *procs.Process) (name, how string) {
+	if p != nil && p.Cgroup.Container != "" {
+		name = sysdocker.NameByID(d.Containers, p.Cgroup.Container)
+		if name == "" {
+			name = shortID(p.Cgroup.Container)
+		}
+		return name, "proses ini berjalan di dalam container"
+	}
+	if p != nil && !proxyNames[p.Name] {
+		return "", ""
+	}
+	if pub, ok := d.Published[fmt.Sprintf("%d/%s", l.Local.Port(), l.Proto)]; ok {
+		return pub.Container, "port host diteruskan ke port " + pub.Target + " di dalam container"
+	}
+	return "", ""
 }
 
 // Load membaca daftar port dari /proc, dengan cadangan `ss -tulpnH` bila /proc/net tidak tersedia.
@@ -41,6 +69,12 @@ func Load(env shared.Env) (Data, error) {
 		d.Source = "ss"
 	}
 	d.Snap = snap
+	if dc := sysdocker.NewClient(); dc.Bin != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		d.Containers = dc.ReadContainers(ctx, env.Runner)
+		d.Published = sysdocker.PublishedPorts(d.Containers)
+	}
 	for _, l := range snap.Listeners {
 		for _, pid := range l.PIDs {
 			if _, ok := d.Procs[pid]; ok {
@@ -104,6 +138,7 @@ func newList(env shared.Env, load func(shared.Env) (Data, error)) *ListModel {
 			{Title: "Proto", Width: 5},
 			{Title: "Alamat", Width: 15, Flex: 2},
 			{Title: "Port", Width: 5, Right: true},
+			{Title: "Konek", Width: 5, Right: true},
 			{Title: "PID", Width: 7, Right: true},
 			{Title: "Proses", Width: 12, Flex: 2},
 			{Title: "User", Width: 8, Flex: 1},
@@ -125,7 +160,10 @@ func (m *ListModel) HandlesBack() bool   { return m.typing || m.filter.Value() !
 func (m *ListModel) HelpText() string {
 	return "Setiap aplikasi jaringan \"mendengarkan\" (listen) di sebuah port. Daftar ini menunjukkan port mana yang sedang dipakai dan oleh proses apa. " +
 		"Alamat 0.0.0.0 atau :: berarti bisa diakses dari luar server (bila firewall mengizinkan); 127.0.0.1 atau ::1 berarti hanya dari server ini. " +
-		"Command setara untuk dipelajari: sudo ss -tulpn"
+		"Kolom Konek adalah jumlah koneksi TCP yang sedang terbuka ke port itu — buka detailnya (enter) untuk melihat asalnya. " +
+		"Port yang dipublikasikan container Docker biasanya dipegang proses docker-proxy di host; kolom Dikelola menyebutkan nama containernya. " +
+		"Catatan: bila Docker dijalankan tanpa userland proxy, port publish container tidak muncul di daftar ini karena tidak ada proses host yang listening — lihat modul Docker. " +
+		"Command setara untuk dipelajari: sudo ss -tulpn  ·  koneksi aktif: sudo ss -tnp state established"
 }
 
 func (m *ListModel) Init() tea.Cmd { return m.reload() }
@@ -243,11 +281,15 @@ func (m *ListModel) applyFilter() {
 			case sysports.ScopeLoopback:
 				return t.Success
 			}
-		case 3, 4, 5:
+		case 3:
+			if len(m.data.Snap.ConnectionsTo(l)) == 0 {
+				return t.Muted
+			}
+		case 4, 5, 6:
 			if len(l.PIDs) == 0 && l.Process == "" {
 				return t.Muted
 			}
-		case 6:
+		case 7:
 			return t.Subtle
 		}
 		return lipgloss.NewStyle()
@@ -264,15 +306,14 @@ func (m *ListModel) row(l sysports.Listener) []string {
 	if l.Process != "" {
 		name = l.Process
 	}
+	var proc *procs.Process
 	if len(l.PIDs) > 0 {
 		t := m.data.Target(l)
+		proc = t.Proc
 		if t.Proc != nil {
 			pid = strconv.Itoa(t.Proc.PID)
 			name, user = t.Proc.Name, t.Proc.User
-			switch {
-			case t.Proc.Cgroup.Container != "":
-				managed = "docker " + shortID(t.Proc.Cgroup.Container)
-			case t.Proc.Cgroup.Service():
+			if t.Proc.Cgroup.Service() {
 				// Scope (sesi login, terminal) tidak ditampilkan di tabel supaya ringkas; ada di detail.
 				managed = t.Proc.Cgroup.Unit
 			}
@@ -283,10 +324,17 @@ func (m *ListModel) row(l sysports.Listener) []string {
 			pid += fmt.Sprintf("+%d", len(l.PIDs)-1)
 		}
 	}
+	if c, _ := m.data.Container(l, proc); c != "" {
+		managed = "docker " + c
+	}
 	if m.data.Source == "ss" {
 		user = ""
 	}
-	return []string{proto, addrLabel(l), strconv.Itoa(int(l.Local.Port())), pid, name, user, managed}
+	konek := "—"
+	if n := len(m.data.Snap.ConnectionsTo(l)); n > 0 {
+		konek = strconv.Itoa(n)
+	}
+	return []string{proto, addrLabel(l), strconv.Itoa(int(l.Local.Port())), konek, pid, name, user, managed}
 }
 
 func addrLabel(l sysports.Listener) string {

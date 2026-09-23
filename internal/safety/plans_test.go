@@ -108,7 +108,21 @@ func has(argv []string, words ...string) bool {
 	return true
 }
 
-func prog(argv []string, name string) bool { return filepath.Base(argv[0]) == name }
+// effective mengembalikan argv program yang sebenarnya dijalankan: untuk runuser (dipakai modul
+// PostgreSQL agar perintah berjalan sebagai user postgres), yang dinilai adalah bagian setelah "--".
+func effective(argv []string) []string {
+	if filepath.Base(argv[0]) != "runuser" {
+		return argv
+	}
+	for i, a := range argv {
+		if a == "--" && i+1 < len(argv) {
+			return argv[i+1:]
+		}
+	}
+	return argv
+}
+
+func prog(argv []string, name string) bool { return filepath.Base(effective(argv)[0]) == name }
 
 var riskRules = []rule{
 	{"kill -KILL tidak memberi kesempatan menyimpan data", func(a []string) bool { return prog(a, "kill") && has(a, "-KILL") }, risk.Dangerous},
@@ -145,7 +159,9 @@ var riskRules = []rule{
 	}, risk.Dangerous},
 	{"apt purge menghapus konfigurasi", func(a []string) bool { return prog(a, "apt-get") && has(a, "purge") }, risk.Dangerous},
 	{"apt remove", func(a []string) bool { return prog(a, "apt-get") && has(a, "remove") }, risk.Caution},
-	{"PPA bisa memasang apa pun lewat update", func(a []string) bool { return prog(a, "add-apt-repository") }, risk.Dangerous},
+	{"PPA bisa memasang apa pun lewat update", func(a []string) bool {
+		return prog(a, "add-apt-repository") || strings.HasSuffix(filepath.Base(effective(a)[0]), "apt.postgresql.org.sh")
+	}, risk.Dangerous},
 	{"rm menghapus file", func(a []string) bool { return prog(a, "rm") }, risk.Caution},
 	{"docker rm -f menghentikan paksa lalu menghapus", func(a []string) bool { return prog(a, "docker") && has(a, "rm", "-f") }, risk.Dangerous},
 	{"prune --volumes menghapus data", func(a []string) bool { return prog(a, "docker") && has(a, "--volumes") }, risk.Dangerous},
@@ -156,6 +172,38 @@ var riskRules = []rule{
 		return has(a, "bash", "-c") || has(a, "sh", "-c")
 	}, risk.Caution},
 	{"mengubah fstab bisa membuat gagal boot", func(a []string) bool { return prog(a, "tee") && has(a, "/etc/fstab") }, risk.Caution},
+	{"dropdb/dropuser menghapus database atau role beserta isinya", func(a []string) bool {
+		return prog(a, "dropdb") || prog(a, "dropuser")
+	}, risk.Dangerous},
+	{"pg_restore --clean menimpa tabel yang ada", func(a []string) bool { return prog(a, "pg_restore") && has(a, "--clean") }, risk.Dangerous},
+	{"mengubah pg_hba.conf menentukan siapa boleh masuk ke database", func(a []string) bool {
+		for _, x := range a {
+			if strings.HasSuffix(x, "pg_hba.conf") && (prog(a, "install") || prog(a, "tee")) {
+				return true
+			}
+		}
+		return false
+	}, risk.Dangerous},
+	{"restart cluster database memutus semua koneksi aplikasi", func(a []string) bool {
+		if !prog(a, "systemctl") || !has(a, "restart") {
+			return false
+		}
+		for _, x := range a {
+			if strings.HasPrefix(x, "postgresql@") {
+				return true
+			}
+		}
+		return false
+	}, risk.Dangerous},
+	{"restart daemon docker menghentikan semua container", func(a []string) bool {
+		return prog(a, "systemctl") && has(a, "restart", "docker")
+	}, risk.Dangerous},
+	{"docker volume rm/prune menghapus data yang tidak bisa dikembalikan", func(a []string) bool {
+		return prog(a, "docker") && has(a, "volume") && (has(a, "rm") || has(a, "prune"))
+	}, risk.Dangerous},
+	{"docker load menjalankan image dari sumber luar", func(a []string) bool { return prog(a, "docker") && has(a, "load") }, risk.Caution},
+	{"docker push mengunggah image ke registry", func(a []string) bool { return prog(a, "docker") && has(a, "push") }, risk.Caution},
+	{"docker login menyimpan kredensial di disk", func(a []string) bool { return prog(a, "docker") && has(a, "login") }, risk.Caution},
 	{"menghapus log journal", func(a []string) bool {
 		return prog(a, "journalctl") && strings.Contains(strings.Join(a, " "), "--vacuum")
 	}, risk.Caution},

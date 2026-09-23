@@ -828,6 +828,104 @@ peringatan merah "jangan tutup sesi ini".
     `needrestart`, `nginx`, `certbot`), `ubt ports --json`, `ubt version`, layar Riwayat + ekspor
     script (`ubt history export`), help overlay, README (`curl` binary rilis + `make install`), skrip rilis.
 
+18. **Docker lanjutan** *(selesai 2026-09-22; profil registry di `~/.config/ubt/registries.json` (0600) hanya
+    berisi alamat + username — password diserahkan ke `docker login` yang menyimpan tokennya sendiri di
+    `~/.docker/config.json`; pesan error push/pull diterjemahkan jadi saran (`x509 unknown authority` →
+    pasang CA ke `/etc/docker/certs.d/HOST/ca.crt`, `HTTP response to HTTPS client` → insecure-registries
+    di `/etc/docker/daemon.json` + restart daemon yang ditandai BAHAYA karena semua container berhenti);
+    wizard `docker run` bertahap — pertanyaan dasar selalu, setting lanjutan (workdir, command, user,
+    network, batas RAM/CPU, healthcheck) hanya setelah dijawab "ya"; command dipecah tanpa shell
+    (`SplitCommand`) sehingga `$(...)` dan `|` tetap teks biasa; resep container disimpan di
+    `~/.config/ubt/containers.json` (ditandai sensitif bila ada environment inline) dan dipakai fitur
+    "buat ulang" (pull → stop → rm → run) setelah image diperbarui; `SpecFromInspect` membangun resep dari
+    container yang dibuat di luar ubt; layar periksa menerjemahkan exit code & OOMKilled dan membaca 50
+    baris log terakhir untuk pola "address already in use"/"permission denied"; volume dicadangkan lewat
+    container alpine sementara dengan volume dipasang `:ro`)* — registry (login, tag+push, pull, CA, insecure),
+    muat/simpan image dari berkas, build, wizard run + resep, buat ulang container, volume & network, stats & diagnosa.
+19. **Modul PostgreSQL (paket apt)** *(selesai 2026-09-22; semua pembacaan lewat
+    `runuser -u postgres -- psql -X -A -t -c 'SELECT coalesce(json_agg(t)::text, …)'` sehingga hasil
+    apa pun aman diparse tanpa menebak pemisah kolom, dan `prog()` di test keselamatan dibuat menembus
+    `runuser`; kondisi dibedakan: paket tidak ada, tanpa cluster, cluster mati, dan "butuh sudo" yang
+    dijawab dengan satu Plan baca (`SELECT 1`) supaya kredensial sudo tersimpan untuk sesi itu;
+    ubt tidak pernah menyentuh `postgresql.conf` bawaan — perubahan ditulis ke `conf.d/10-ubt-tuning.conf`,
+    `20-ubt-listen.conf`, `30-ubt-statements.conf` sehingga membatalkan cukup menghapus berkasnya;
+    `pg_hba.conf` ditambah dengan `tee -a` setelah `cp -a` cadangan, dan aturannya ditulis SEBELUM
+    `listen_addresses` dibuka; password role tidak pernah lewat ubt (`createuser --pwprompt`, `\password`);
+    wizard hak akses menjalankan CONNECT → USAGE → SELECT/DML → ALTER DEFAULT PRIVILEGES sebagai langkah
+    terpisah agar terbaca sebagai pelajaran; query user dibungkus `--single-transaction` dan, untuk query
+    baca, `SET TRANSACTION READ ONLY` sehingga perintah yang ternyata menulis ditolak server;
+    kalkulator penyetelan memakai pedoman umum (shared_buffers ¼ RAM maks 8GB, effective_cache_size ¾ RAM,
+    work_mem dibagi max_connections) dan menandai parameter yang butuh restart; cadangan otomatis =
+    script `/usr/local/bin/ubt-pg-backup` + `/etc/cron.d/ubt-pg-backup` lewat modul Penjadwalan yang sudah ada)* —
+    install & kesehatan cluster, database/role/hak akses, cadangan & pemulihan + jadwal, akses dari
+    jaringan (pg_hba + listen_addresses), monitor koneksi/lock/query lambat/ukuran tabel, penyetelan parameter.
+
+20. **PostgreSQL 18 & pagar firewall** *(selesai 2026-09-22, diverifikasi terhadap PostgreSQL 18.6 dari PGDG
+    yang dipasang berdampingan dengan 16 bawaan Ubuntu; wizard akses jaringan sekarang sekalian menambah
+    aturan ufw, disisipkan SETELAH pg_hba dan SEBELUM listen_addresses dibuka sehingga tidak pernah ada
+    saat port terbuka tanpa kedua pagar — bila ufw belum terpasang, opsinya dinonaktifkan dengan alasannya,
+    dan bila ufw belum aktif, bantuan menyebutkan aturannya baru berlaku setelah dinyalakan; install
+    menanyakan versi lebih dulu: bawaan Ubuntu (16) atau versi PGDG (18/17/lainnya) yang repositorinya
+    ditambahkan memakai skrip resmi `/usr/share/postgresql-common/pgdg/apt.postgresql.org.sh` yang sudah
+    ikut dalam paket postgresql-common Ubuntu — bukan kunci GPG & sources.list buatan sendiri, dan
+    langkahnya ditandai BAHAYA seperti add-apt-repository; server dengan beberapa cluster memilih cluster
+    yang berjalan secara otomatis dan bisa dipindah (tombol c), kondisi "belum ada cluster" bisa dijawab
+    `pg_createcluster`; kalkulator penyetelan jadi sadar versi: sejak 18 effective_io_concurrency bawaannya
+    16 (bukan 1) karena I/O asinkron, jadi angka lama 200 tidak lagi disarankan, dan io_workers ikut
+    diusulkan; pembacaan `round(double precision, int)` di pg_stat_statements diperbaiki jadi cast numeric —
+    bug ini baru ketahuan saat ekstensinya benar-benar dipasang, dan berlaku untuk semua versi)* —
+    dukungan PostgreSQL 18, pemilihan versi & cluster, dan integrasi ufw di wizard akses jaringan.
+
+21. **Ports & Proses: koneksi aktif & nama container** *(selesai 2026-09-22; `ReadListeners` sekalian
+    mengumpulkan socket TCP ESTABLISHED dalam sekali baca /proc/net (tanpa I/O tambahan), lalu
+    `ConnectionsTo` memasangkannya ke listener: protokol & keluarga alamat harus sama dan alamat lokal
+    cocok — pemisahan IPv4/IPv6 sengaja dijaga supaya aplikasi yang mendengarkan di 0.0.0.0 dan [::]
+    sekaligus tidak menghitung koneksi dua kali; daftar port mendapat kolom Konek, detail
+    menampilkan asal koneksi yang dikelompokkan per alamat (terbanyak dulu, maks 8 baris) beserta
+    berapa yang datang dari server sendiri; nama container diambil dari `docker ps` sekali jalan —
+    untuk proses yang berjalan DI DALAM container (lewat cgroup) maupun port host yang dipublikasikan
+    container lewat docker-proxy (lewat kolom Ports), sehingga baris docker-proxy tidak lagi anonim;
+    pesan "pemilik tidak terlihat" diperbaiki: sebagai root penyebabnya bukan izin user melainkan
+    proses di namespace lain — diverifikasi dengan membandingkan jumlah koneksi ubt terhadap
+    /proc/net/tcp pada saat yang sama (4 vs 4) di server uji dengan container publish port)* —
+    koneksi aktif per port, nama container, dan diagnosa pemilik port yang jujur.
+
+22. **Editor query dengan saran otomatis** *(selesai 2026-09-22; `ReadSchema` membaca tabel/view beserta
+    tipe, kunci utama, dan nilai bawaan tiap kolom lewat pg_class/pg_attribute — dibatasi ke skema milik
+    user dan yang benar-benar boleh di-SELECT; mesin saran (`Complete`) murni fungsi tanpa UI sehingga
+    bisa diuji lewat posisi kursor bertanda `|` di teks uji: konteks ditebak dari token sebelum kursor —
+    setelah FROM/JOIN/UPDATE/INTO muncul tabel, setelah SELECT/WHERE/SET muncul kolom tabel yang sedang
+    dipakai (alias `p.` dan `AS x` dikenali, kolom tabel lain tidak ikut bocor), setelah kolom muncul
+    operator sesuai tipe, dan setelah operator muncul bentuk nilai; kolom waktu mendapat perlakuan paling
+    lengkap karena di situ pemula paling sering tersesat — `>=`/`BETWEEN` didahulukan, nilainya
+    `now() - interval '7 days'`, `date_trunc('month', now())`, `current_date - 1`, `DATE '…'`,
+    `TIMESTAMP '…'`, dan `AT TIME ZONE` khusus timestamptz, sementara kolom `date` tidak ditawari
+    saran berjam-jam; string yang belum ditutup mematikan saran, titik koma memisahkan konteks antar
+    perintah; layar editor memakai textarea bubbles, menghitung offset kursor dari Line()+LineInfo(),
+    dan menerima saran dengan mengirim backspace lalu InsertString sehingga kursor tetap benar walau
+    menyunting di tengah teks — template seperti `sum()` menaruh kursor di dalam kurung; query tetap
+    dijalankan lewat QueryPlan yang sudah ada, jadi pengaman READ ONLY dan layar konfirmasi tidak
+    dilewati; diverifikasi di PostgreSQL 18 nyata: query "pesanan 7 hari terakhir" dirangkai hanya dari
+    saran lalu benar-benar mengembalikan baris)* — saran tabel, kolom, kata kunci, fungsi, operator, dan
+    nilai waktu di editor query.
+
+23. **Hasil query sebagai tabel** *(selesai 2026-09-23; hasil dibaca lewat `COPY (…) TO STDOUT WITH
+    (HEADER true)` — format teks COPY dipilih setelah percobaan di server nyata: ia satu-satunya bentuk
+    yang tidak bisa disamar data, karena tab/baris baru/backslash selalu di-escape dan NULL keluar
+    sebagai `\N` sedangkan teks kosong keluar sebagai kolom kosong, sementara sentinel NULL buatan
+    sendiri sempat memakai byte NUL yang ditolak exec (`invalid argument`) dan teks "\N" yang sungguhan
+    pun tetap terbedakan karena keluar sebagai `\\N`; query dibungkus `--single-transaction` +
+    `SET TRANSACTION READ ONLY` + `SET LOCAL statement_timeout`, dan dibatasi 5000 baris dengan
+    penanda terpotong supaya `SELECT *` di tabel besar tidak menghabiskan memori; lebar kolom mengikuti
+    isi terpanjang dengan batas 28 karakter, kolom yang seluruhnya angka dirata-kanankan, sel NULL
+    diredupkan, `/` menyaring baris, dan enter membuka satu baris secara vertikal dengan isi utuh yang
+    dilipat — bukan dipotong; nilai berbaris banyak dipipihkan jadi `↵` di tabel setelah rendering di
+    server nyata memperlihatkan barisnya tumpah dan merusak kesejajaran kolom; `ClassifyQuery` kini
+    menganggap "SELECT …; DELETE …" sebagai perubahan, karena titik koma di tengah teks berarti ada
+    perintah kedua yang ikut jalan; daftar read-only di `internal/safety` diperluas persis untuk tiga
+    argumen ini — COPY hanya sah bila isinya query pembacaan dan tujuannya STDOUT)* — hasil query
+    langsung terbaca sebagai tabel yang bisa digulir, disaring, dan dibuka per baris.
+
 Urutan sengaja menaruh modul yang **mayoritas read-only** (Resource, Disk, Log) sebelum modul yang
 berisiko mengunci user dari server (User & SSH, Firewall), supaya lapisan eksekusi, Plan, dan Stream
 sudah teruji di kasus yang aman.

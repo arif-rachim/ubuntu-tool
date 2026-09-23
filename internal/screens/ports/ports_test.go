@@ -11,6 +11,7 @@ import (
 
 	"github.com/arif-rachim/ubuntu-tool/internal/risk"
 	"github.com/arif-rachim/ubuntu-tool/internal/screens/shared"
+	sysdocker "github.com/arif-rachim/ubuntu-tool/internal/sys/docker"
 	sysports "github.com/arif-rachim/ubuntu-tool/internal/sys/ports"
 	"github.com/arif-rachim/ubuntu-tool/internal/sys/procs"
 	"github.com/arif-rachim/ubuntu-tool/internal/testutil"
@@ -251,5 +252,133 @@ func TestDetailTampilan(t *testing.T) {
 		if !strings.Contains(view+m.Title(), s) {
 			t.Errorf("detail tidak memuat %q:\n%s", s, view)
 		}
+	}
+}
+
+// conn membuat koneksi TCP yang sedang terbuka ke sebuah port lokal.
+func conn(local, remote string) sysports.Connection {
+	lp, rp := netip.MustParseAddrPort(local), netip.MustParseAddrPort(remote)
+	return sysports.Connection{Socket: sysports.Socket{
+		Proto: sysports.TCP, IPv6: lp.Addr().Is6(), Local: lp, Remote: rp, State: sysports.StateEstablished,
+	}}
+}
+
+// dockerData adalah kondisi khas server dengan Docker: satu proses di dalam container, dan satu
+// port host yang dipublikasikan container lewat docker-proxy.
+func dockerData() Data {
+	d := fakeData()
+	proxy := proc(5000, 1, 0, "docker-proxy", "docker.service")
+	inside := procs.Process{PID: 6000, PPID: 1, Name: "postgres", User: "postgres",
+		Cgroup: procs.ParseCgroup("0::/system.slice/docker-1111aaaa2222bbbb3333cccc4444dddd5555eeee6666ffff7777aaaa8888bbbb.scope")}
+	d.Snap.Listeners = append(d.Snap.Listeners,
+		listener(sysports.TCP, "0.0.0.0:8081", 5000),
+		listener(sysports.TCP, "0.0.0.0:5432", 6000))
+	d.Procs[5000] = proxy
+	d.Procs[6000] = inside
+	d.Snap.Established = []sysports.Connection{
+		conn("0.0.0.0:80", "10.0.0.5:51000"),
+		conn("0.0.0.0:80", "10.0.0.5:51001"),
+		conn("0.0.0.0:80", "127.0.0.1:51002"),
+	}
+	d.Containers = sysdocker.ParseContainers(
+		`{"ID":"1111aaaa2222bbbb3333cccc4444dddd5555eeee6666ffff7777aaaa8888bbbb","Names":"db","Image":"postgres:18","State":"running","Ports":""}
+{"ID":"9999cccc","Names":"web-uji","Image":"nginx","State":"running","Ports":"0.0.0.0:8081->80/tcp"}`)
+	d.Published = sysdocker.PublishedPorts(d.Containers)
+	return d
+}
+
+func TestDaftarMenampilkanKoneksiDanContainer(t *testing.T) {
+	env := shared.Env{UID: 1000, Now: time.Now, ProcRoot: t.TempDir()}
+	m := newList(env, func(shared.Env) (Data, error) { return dockerData(), nil })
+	m.Update(m.Init()())
+	view := ansi.Strip(m.View(140, 30))
+
+	// Port host yang dipublikasikan container disebut nama containernya, bukan cuma docker-proxy.
+	if !strings.Contains(view, "docker web-uji") {
+		t.Errorf("nama container untuk port publish tidak muncul:\n%s", view)
+	}
+	// Proses yang berjalan DI DALAM container juga dinamai.
+	if !strings.Contains(view, "docker db") {
+		t.Errorf("nama container untuk proses di dalamnya tidak muncul:\n%s", view)
+	}
+	// Jumlah koneksi ikut terlihat di daftar.
+	if !strings.Contains(view, "Konek") {
+		t.Errorf("kolom koneksi tidak ada:\n%s", view)
+	}
+	var row80 []string
+	for i, l := range m.rows {
+		if l.Local.Port() == 80 {
+			row80 = m.table.Rows[i]
+		}
+	}
+	if len(row80) == 0 || row80[3] != "3" {
+		t.Errorf("baris port 80 = %v, ingin 3 koneksi", row80)
+	}
+}
+
+func TestDetailKoneksiAktif(t *testing.T) {
+	d := dockerData()
+	env := shared.Env{UID: 1000, Now: time.Now, ProcRoot: t.TempDir()}
+	var l80 sysports.Listener
+	for _, l := range d.Snap.Listeners {
+		if l.Local.Port() == 80 {
+			l80 = l
+		}
+	}
+	view := ansi.Strip(newDetail(env, d, l80).View(120, 60))
+	for _, want := range []string{"Koneksi aktif", "3 koneksi terbuka", "1 dari server ini sendiri", "10.0.0.5", "2 koneksi", "127.0.0.1 (server ini)"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("detail tidak memuat %q:\n%s", want, view)
+		}
+	}
+
+	// Port tanpa koneksi tetap menjelaskan keadaannya, bukan dibiarkan kosong.
+	var l5432 sysports.Listener
+	for _, l := range d.Snap.Listeners {
+		if l.Local.Port() == 5432 {
+			l5432 = l
+		}
+	}
+	detail := newDetail(env, d, l5432)
+	view = ansi.Strip(detail.View(120, 60))
+	if !strings.Contains(view, "Tidak ada koneksi yang sedang terbuka") {
+		t.Errorf("port tanpa koneksi:\n%s", view)
+	}
+	// Proses di dalam container dinamai di detail juga.
+	if !strings.Contains(view, "db") {
+		t.Errorf("nama container di detail:\n%s", view)
+	}
+}
+
+// Saat ubt sudah berjalan sebagai root, "milik user lain" adalah alasan yang salah.
+func TestDetailPemilikTidakTerlihat(t *testing.T) {
+	d := fakeData()
+	yatim := listener(sysports.TCP, "0.0.0.0:2024")
+	d.Snap.Listeners = append(d.Snap.Listeners, yatim)
+
+	biasa := newDetail(shared.Env{UID: 1000, Now: time.Now, ProcRoot: "/proc"}, d, yatim)
+	view := ansi.Strip(biasa.View(120, 40))
+	if !strings.Contains(view, "milik user lain") || !strings.Contains(view, "sudo") {
+		t.Errorf("sebagai user biasa:\n%s", view)
+	}
+
+	root := newDetail(shared.Env{UID: 0, IsRoot: true, Now: time.Now, ProcRoot: "/proc"}, d, yatim)
+	view = ansi.Strip(root.View(120, 40))
+	if strings.Contains(view, "milik user lain") {
+		t.Errorf("sebagai root tidak boleh menyalahkan izin user:\n%s", view)
+	}
+	for _, want := range []string{"namespace lain", "sudah berjalan sebagai root"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("penjelasan root tidak memuat %q:\n%s", want, view)
+		}
+	}
+
+	// Bila ternyata port itu milik container, itulah yang disebut — bukan soal izin sama sekali.
+	dd := dockerData()
+	proxyPort := listener(sysports.TCP, "0.0.0.0:8081") // tanpa PID: docker-proxy tidak terlihat
+	dd.Snap.Listeners = append(dd.Snap.Listeners, proxyPort)
+	view = ansi.Strip(newDetail(shared.Env{UID: 0, IsRoot: true, Now: time.Now, ProcRoot: "/proc"}, dd, proxyPort).View(120, 40))
+	if !strings.Contains(view, "web-uji") {
+		t.Errorf("port container tanpa pemilik terlihat:\n%s", view)
 	}
 }
