@@ -1,11 +1,10 @@
-# ubt — asisten interaktif untuk server Ubuntu
+# ubt: an interactive assistant for Ubuntu servers
 
-`ubt` membantu kamu mengelola server Ubuntu 24.04 tanpa harus hafal command. Ketik `ubt`, pilih
-menu, jawab beberapa pertanyaan, lalu `ubt` menampilkan **command persis** yang akan dijalankan
-beserta penjelasan tiap bagiannya, efeknya, dan meminta konfirmasi. Sambil menyelesaikan masalah,
-kamu belajar command aslinya.
+`ubt` is a terminal UI that helps you manage an Ubuntu 24.04 server without having to memorise commands. You type `ubt`, pick a menu, answer a few questions, and `ubt` shows the **exact command** it is about to run, with an explanation of every part, its effect, a safer alternative where one exists, and a risk level, then asks for confirmation. It is aimed at people who run their own servers but are not full-time Linux administrators, so while they fix a problem they also learn the real commands behind it. Built-in guards prevent the usual ways of locking yourself out: enabling the firewall always allows SSH first, and sshd changes are validated before a restart. It is a single static Go binary built on Bubble Tea v2, Bubbles and Lip Gloss, covering diagnosis, resources, disk, logs, systemd, scheduling, apt, networking, ports, ufw, nginx/TLS, users and SSH, and Docker. The interface text is currently in Indonesian only; nightly binaries are published for amd64 and arm64.
 
-```
+> Status: active development. The interface is Indonesian only (`internal/i18n`); Linux command names and flags are not translated.
+
+```text
  ⚠  BERISIKO  Buat reverse proxy app.contoh.com
  Perintah yang akan dijalankan:
     1. $  sudo install -m 0644 /dev/stdin /etc/nginx/sites-available/app.contoh.com
@@ -15,101 +14,115 @@ kamu belajar command aslinya.
  [ y Jalankan ]   [ n Batal ]   [ c Salin command ]
 ```
 
-## Prinsip
+(An example confirmation screen: a risky action, "create reverse proxy", listing the commands; step 4 is skipped if the `nginx -t` validation fails. The buttons are Run, Cancel and Copy command.)
 
-- **Tidak ada yang dijalankan diam-diam.** Setiap perubahan menampilkan command, penjelasan, efek,
-  alternatif yang lebih aman, dan tingkat risikonya. Aksi berbahaya butuh konfirmasi dua kali.
-- **Pengaman anti-terkunci.** Mengaktifkan firewall otomatis mengizinkan port SSH; mematikan login
-  password ditolak bila belum ada SSH key; perubahan sshd divalidasi `sshd -t` sebelum restart.
-- **sudo hanya saat perlu**, password diminta sekali oleh sudo sendiri (ubt tidak pernah menyimpannya).
-- **Riwayat** setiap command tersimpan di `~/.config/ubt/history.log` (izin 0600) dan bisa diekspor
-  jadi script bash. Isi rahasia tidak pernah dicatat.
+## Principles
 
-## Modul
+- **Nothing runs silently.** Every change shows the command, an explanation, its effect, a safer alternative and its risk level. Dangerous actions need a second confirmation.
+- **Lock-out guards.** Enabling the firewall automatically allows the SSH port; disabling password login is refused if no SSH key is set up yet; sshd changes are validated with `sshd -t` before the restart.
+- **sudo only when needed.** The password is asked for once by sudo itself; ubt never stores it.
+- **History.** Every command is recorded in `~/.config/ubt/history.log` (or `$XDG_CONFIG_HOME/ubt/history.log`, file mode 0600) and can be exported as a bash script. Secret contents are never logged.
 
-| Kelompok | Modul | Contoh yang bisa dilakukan |
+## Modules
+
+| Group | Module | Examples of what you can do |
 |---|---|---|
-| 🩺 Diagnosa | Diagnosa berdasarkan gejala | Disk penuh, server lambat, service crash loop, SSH gagal login, habis update rusak, cek kesehatan umum |
-| 💻 Sistem | Resource | CPU/RAM/load/tekanan IO dijelaskan, proses terberat, renice & hentikan proses |
-| | Disk & Storage | Apa yang makan tempat, file terhapus yang masih dibuka, bersih-bersih terpandu, swapfile |
-| | Log | Error sejak boot, log per service, ikuti log secara langsung |
-| | Service (systemd) | Start/stop/restart/enable dengan peringatan untuk service kritis |
-| | Penjadwalan | Cron & systemd timer dijelaskan dalam bahasa manusia, wizard jadwal baru |
-| | Paket (apt) | Update keamanan, cari & install, perbaiki paket rusak, auto-update |
-| 🌐 Jaringan | Network & konektivitas | Wizard "kenapa tidak bisa konek" dan "kenapa port tidak bisa diakses" |
-| | Ports & Proses | Port mana dipakai proses apa, hentikan dengan aman |
-| | Firewall (ufw) | Allow/deny dengan preset, hapus aturan, aktifkan tanpa memutus SSH |
-| | Web & TLS | Reverse proxy nginx, HTTPS Let's Encrypt, cek sertifikat domain mana pun |
-| 🔑 Akses | User & SSH | Tambah user, sudo, SSH key, amankan sshd |
-| 📦 Container | Docker | Container & image, shell interaktif, commit, wizard Dockerfile/compose, jalankan Python |
-| 📜 Riwayat | Riwayat perintah | Lihat apa yang pernah diubah, ekspor jadi script |
+| 🩺 Diagnosis | Symptom-based diagnosis | Full disk, slow server, service crash loop, failed SSH login, broken after an update, general health check |
+| 💻 System | Resources | CPU/RAM/load/IO pressure explained, heaviest processes, renice and stop processes |
+| | Disk & storage | What is using space, deleted files still held open, guided clean-up, swapfile |
+| | Logs | Errors since boot, logs per service, follow logs live |
+| | Services (systemd) | Start/stop/restart/enable with warnings for critical services |
+| | Scheduling | Cron jobs and systemd timers explained in plain language, a wizard for new schedules |
+| | Packages (apt) | Security updates, search and install, fix broken packages, automatic updates |
+| 🌐 Network | Network & connectivity | "Why can't I connect" and "why is this port unreachable" wizards |
+| | Ports & processes | Which process uses which port, stop it safely |
+| | Firewall (ufw) | Allow/deny with presets, delete rules, enable without cutting off SSH |
+| | Web & TLS | nginx reverse proxy, Let's Encrypt HTTPS, check the certificate of any domain |
+| 🔑 Access | Users & SSH | Add users, sudo, SSH keys, harden sshd |
+| 📦 Containers | Docker | Containers and images, interactive shell, commit, Dockerfile/compose wizard, run Python |
+| 📜 History | Command history | See what has been changed, export it as a script |
 
-Rencana dan catatan desain lengkap ada di [`docs/PLAN.md`](docs/PLAN.md).
+The full plan and design notes are in [`docs/PLAN.md`](docs/PLAN.md) (Indonesian).
 
-## Pemasangan
+## Tech stack
 
-### Binary rilis
+Go 1.25 · Bubble Tea v2 · Bubbles v2 · Lip Gloss v2 · GitHub Actions
+
+## Installation
+
+### Release binaries
+
+The release workflow publishes a **nightly** pre-release (static `ubt-linux-amd64` and `ubt-linux-arm64` binaries plus `SHA256SUMS`) on every push to `main`:
 
 ```bash
-arch=$(dpkg --print-architecture)      # amd64 atau arm64
-base=https://github.com/arif-rachim/ubuntu-tool/releases/latest/download
+arch=$(dpkg --print-architecture)      # amd64 or arm64
+base=https://github.com/arif-rachim/ubuntu-tool/releases/download/nightly
 curl -fsSLo ubt-linux-$arch "$base/ubt-linux-$arch"
 curl -fsSL "$base/SHA256SUMS" | grep " ubt-linux-$arch\$" | sha256sum -c -
 sudo install -m 0755 ubt-linux-$arch /usr/local/bin/ubt
 ubt doctor
 ```
 
-Binary juga bisa diunduh langsung dari halaman
-[Releases](https://github.com/arif-rachim/ubuntu-tool/releases):
+Once a stable `vX.Y.Z` tag has been published, the same files are available under `https://github.com/arif-rachim/ubuntu-tool/releases/latest/download/`. Binaries can also be downloaded from the [Releases](https://github.com/arif-rachim/ubuntu-tool/releases) page.
 
-- **Rilis stabil** (`vX.Y.Z`) — `releases/latest/download/ubt-linux-amd64` atau `…-arm64`.
-- **Nightly** — build otomatis setiap ada perubahan di `main`, untuk mencoba fitur terbaru:
-  `https://github.com/arif-rachim/ubuntu-tool/releases/download/nightly/ubt-linux-amd64`
+### From source
 
-### Dari source
-
-Butuh Go (lihat versi di `go.mod`) dan `make` (`sudo apt install make`).
+You need Go (see the version in `go.mod`) and `make` (`sudo apt install make`).
 
 ```bash
-make build            # hasil: ./bin/ubt
-sudo make install     # pasang ke /usr/local/bin/ubt
+make build            # output: ./bin/ubt
+sudo make install     # installs to /usr/local/bin/ubt
 ```
 
-## Pemakaian
+## Usage
 
 ```bash
-ubt                               # menu interaktif
-ubt doctor                        # program apa yang dibutuhkan tiap modul, dan paket apt-nya
-ubt ports [--json]                # port yang listening dan prosesnya
-ubt history [--last N] [--json]   # command yang pernah dijalankan lewat ubt
+ubt                               # interactive menu
+ubt doctor [--json]               # which programs each module needs, and their apt packages
+ubt ports [--json]                # listening ports and their processes
+ubt history [--last N] [--json]   # commands previously run through ubt
 ubt history export --last 20 > setup-server.sh
 ubt version [--json]
 ```
 
-Di dalam menu: `↑↓` pindah, `enter` pilih, `esc` kembali, `?` penjelasan layar, `r` muat ulang,
-`q` keluar. Angka `1-9` langsung memilih opsi di pertanyaan.
+Inside the menu: `↑↓` move, `enter` select, `esc` back, `?` explains the current screen, `r` reload, `q` quit. The digits `1-9` pick an option directly in a question.
 
-## Pengembangan
+## Project structure
+
+```text
+cmd/ubt/            entry point, subcommands and screen registry
+internal/app/       root Bubble Tea model and key bindings
+internal/cli/       non-interactive subcommands: doctor, ports, history
+internal/screens/   one package per menu module (disk, docker, firewall, logs, ...)
+internal/sys/       system readers and command plans per area (systemd, ufw, apt, ...)
+internal/run/       command plans, sudo handling, streaming runner, history log
+internal/ui/        shared widgets: ask (question flow), runflow (confirm/execute), tables, theme
+internal/safety/    cross-module safety tests
+internal/i18n/      all interface strings
+docs/PLAN.md        implementation plan
+```
+
+## Development
 
 ```bash
 make all              # fmt-check + vet + test + build
 make test
-make lint             # gofmt + go vet (+ golangci-lint bila terinstall)
-make build-all        # binary statis linux/amd64 & linux/arm64 di ./dist
-make release TAG=v0.1.0            # build rilis + SHA256SUMS secara lokal
-make release TAG=v0.1.0 PUBLISH=1  # + push tag → GitHub Actions menerbitkan rilis
+make lint             # gofmt + go vet (+ golangci-lint if installed)
+make build-all        # static linux/amd64 and linux/arm64 binaries in ./dist
+make release TAG=v0.1.0            # build a release + SHA256SUMS locally
+make release TAG=v0.1.0 PUBLISH=1  # + push the tag so GitHub Actions publishes the release
 ```
 
-Build & rilis otomatis (`.github/workflows/release.yml`):
+Automatic build and release (`.github/workflows/release.yml`):
 
-| Pemicu | Hasil |
+| Trigger | Result |
 |---|---|
-| push ke `main` | pra-rilis `nightly` diperbarui (binary amd64/arm64 + `SHA256SUMS`) |
-| push tag `vX.Y.Z` | rilis `ubt vX.Y.Z` dengan catatan rilis otomatis |
-| Actions → Release → *Run workflow* | memperbarui `nightly` secara manual |
+| push to `main` | the `nightly` pre-release is updated (amd64/arm64 binaries + `SHA256SUMS`) |
+| push a `vX.Y.Z` tag | a `ubt vX.Y.Z` release with generated release notes |
+| Actions → Release → *Run workflow* | updates `nightly` manually |
 
-Setiap build menjalankan gofmt, vet, dan `go test -race` dulu; binary tidak diterbitkan bila test gagal.
+Every build runs gofmt, vet and `go test -race` first; binaries are not published if the tests fail. CI (`.github/workflows/ci.yml`) runs on pushes to `main` and `claude/**` branches and on pull requests.
 
-## Lisensi
+## License
 
 [MIT](LICENSE)
